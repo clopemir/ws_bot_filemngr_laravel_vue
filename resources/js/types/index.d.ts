@@ -36,4 +36,18 @@ export interface User {
     updated_at: string;
 }
 
+export interface PageProps {
+    auth?: {
+      user: {
+        id: number
+        name: string
+        email: string
+      }
+    }
+    flash: {
+      success?: string
+      error?: string
+    }
+  }
+
 export type BreadcrumbItemType = BreadcrumbItem;
