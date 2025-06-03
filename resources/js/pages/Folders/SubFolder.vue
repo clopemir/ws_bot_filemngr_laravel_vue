@@ -11,13 +11,13 @@ const { deleteAgent } = useAgentForm()
 
 
 const props = defineProps({
-    folders: {
+    folder: {
         type: Object,
         required: true,
     },
 });
 
-console.log(props.folders.data);
+console.log(props.folder);
 
 
 const breadcrumbs = [
@@ -25,6 +25,10 @@ const breadcrumbs = [
         title: 'Folders',
         href: '/folders',
     },
+    {
+        title: 'Contenido',
+        href: '#',
+    }
 ];
 
 function goToPage(url = null) {
@@ -75,15 +79,15 @@ function goToPage(url = null) {
                         </tbody>
                     </table>
                 </div> -->
-                <a v-for="folder in folders.data" :key="folder.id" :href="`/folders/${folder.id}`" class="group flex flex-col bg-white border shadow-md rounded-xl hover:shadow-lg focus:outline-none focus:shadow-lg transition dark:bg-neutral-900 dark:border-neutral-800">
+                <a v-for="item in folder.children" :key="item.id" :href="`/folders/${folder.id}`" class="group flex flex-col bg-white border shadow-md rounded-xl hover:shadow-lg focus:outline-none focus:shadow-lg transition dark:bg-neutral-900 dark:border-neutral-800">
                         <div class="p-4 md:p-5">
                             <div class="flex justify-between items-center gap-x-3">
                                 <div class="grow">
                                 <h3 class="group-hover:text-blue-600 font-semibold text-gray-800 dark:group-hover:text-neutral-400 dark:text-neutral-200 uppercase">
-                                    {{ folder.folder_name }}
+                                    {{ item.folder_name }}
                                 </h3>
                                 <p class="text-sm text-gray-500 dark:text-neutral-500">
-                                    {{ folder.children.length }} Sub-Carpetas
+                                    {{ item.length }} Sub-Carpetas
                                 </p>
                                 </div>
                                 <div>
@@ -96,7 +100,7 @@ function goToPage(url = null) {
 
             </div>
              <!-- Paginación -->
-            <div class="mt-4 flex flex-wrap items-center justify-between">
+            <!-- <div class="mt-4 flex flex-wrap items-center justify-between">
                 <div class="text-sm text-gray-600 dark:text-gray-400">
                     Mostrando {{ folders.from }} a {{ folders.to }} de {{ folders.total }} resultados
                 </div>
@@ -114,7 +118,7 @@ function goToPage(url = null) {
                         ]"
                     />
                 </div>
-            </div>
+            </div> -->
         </div>
     </AppLayout>
 </template>

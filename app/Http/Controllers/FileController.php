@@ -14,42 +14,35 @@ class FileController extends Controller
 
     public function store(Request $request) {
         $validated = $request->validate([
-            'file_upload' => 'required|file|max:10240',
-            'folder_id' => 'required|exists:folders,id'
+            //'file_upload' => 'required|file|max:10240',
+            'folder_id' => 'required|exists:folders,id',
+            'files.*' => 'required|file|max:20480'
         ]);
 
         try {
-            $folder = Folder::findOrFail($validated['folder_id']);
-            $uploadedFile = $request->file('file_upload');
+                $folder = Folder::findOrFail($validated['folder_id']);
 
-            // 1 Obtener la ruta de almacenamiento
-            $folderStoragePath = $folder->getStoragePath();
+                foreach ($request->file('files') as $uploadedFile) {
 
-             // 2. Obtener información del archivo
-             $originalFileName = $uploadedFile->getClientOriginalName();
-             $fileSize = $uploadedFile->getSize(); // Tamaño en bytes
-             $fileMimeType = $uploadedFile->getMimeType(); // o getClientMimeType()
+                    $folderStoragePath = $folder->getStoragePath();
+                    $storedFilePath = $uploadedFile->store($folderStoragePath, 'public');
 
-             //3 almacenar el archivo
+                    $originalFileName = $uploadedFile->getClientOriginalName();
+                    $fileSize = $uploadedFile->getSize(); // Tamaño en bytes
+                    $fileMimeType = $uploadedFile->getMimeType(); // o getClientMimeType()
 
-             $storedFilePath = $uploadedFile->store($folderStoragePath, 'public');
-            // $storedFilePath será algo como: "clientes/carpeta_padre/subcarpeta/nombreUnicoGenerado.ext"
+                    File::create([
+                        'folder_id' => $folder->id,
+                        'original_file_name' => $originalFileName,
+                        'file_name' => basename($storedFilePath), // Nombre único generado por Laravel
+                        'file_path' => $storedFilePath,        // Ruta relativa al disco para Storage::url()
+                        'file_size' => $fileSize,
+                        'file_type' => $fileMimeType,
+                    ]);
 
-            if (!$storedFilePath) {
-                throw new Exception('No se pudo almacenar el archivo en el disco.');
-            }
+                }
 
-            $file = new File([
-                'folder_id' => $folder->id,
-                'original_file_name' => $originalFileName,
-                'file_name' => basename($storedFilePath), // Nombre único generado por Laravel
-                'file_path' => $storedFilePath,        // Ruta relativa al disco para Storage::url()
-                'file_size' => $fileSize,
-                'file_type' => $fileMimeType,
-            ]);
-            $file->save();
-
-            return redirect()->back()->with('success', 'Archivo "' . $originalFileName . '" subido exitosamente a la carpeta "' . $folder->folder_name . '".');
+            return back()->with('success', 'Archivos subidos exitosamente a la carpeta "' . $folder->folder_name . '".');
 
         } catch (Exception $e) {
             Log::error("Error al subir archivo: " . $e->getMessage() . " Stack: " . $e->getTraceAsString());

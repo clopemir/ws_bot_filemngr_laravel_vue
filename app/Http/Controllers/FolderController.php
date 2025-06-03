@@ -37,6 +37,16 @@ class FolderController extends Controller
         ]);
     }
 
+
+    public function showByPath($path) {
+        
+        $folder = Folder::where('path', $path)->with(['children', 'files'])->firstOrFail();
+
+        return Inertia::render('Folders/Show', [
+            'folder' => $folder
+        ]);
+    }
+
     public function store(Request $request) {
 
 

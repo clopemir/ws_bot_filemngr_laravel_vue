@@ -14,6 +14,8 @@ return new class extends Migration
         Schema::create('folders', function (Blueprint $table) {
             $table->id();
             $table->string('folder_name');
+            $table->string('slug');
+            $table->string('path');
             $table->foreignId('client_id')->nullable()->constrained()->nullOnDelete();
             $table->foreignId('parent_id')
                 ->nullable()

@@ -15,9 +15,21 @@ class Folder extends Model
         'parent_id'
     ];
 
+    public static function boot()
+{
+    parent::boot();
 
-    public function parent(): HasMany {
-        return $this->hasMany(Folder::class, 'parent_id');
+    static::creating(function ($folder) {
+        $folder->slug = Str::slug($folder->folder_name);
+        $folder->path = $folder->parent
+            ? $folder->parent->path . '/' . $folder->slug
+            : $folder->slug;
+    });
+}
+
+
+    public function parent(): BelongsTo {
+        return $this->belongsTo(Folder::class, 'parent_id');
     }
 
     public function children(): HasMany {
