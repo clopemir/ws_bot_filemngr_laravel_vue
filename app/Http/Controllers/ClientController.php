@@ -97,6 +97,7 @@ class ClientController extends Controller
             'client_lname' => 'string|max:225',
             'client_status' => 'boolean|required'
         ]);
+        $validated['client_rfc'] = strtolower($validated['client_rfc']);
 
         $client->update($validated);
 

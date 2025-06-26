@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Client;
 use Exception;
 use App\Models\File;
 use App\Models\Folder;
@@ -21,6 +22,8 @@ class FileController extends Controller
 
         try {
                 $folder = Folder::findOrFail($validated['folder_id']);
+                $client = Client::findOrFail($folder->client_id);
+                //$client = Client::where('id', '=', $folder->client_id)->firstOrFail();
 
                 foreach ($request->file('files') as $uploadedFile) {
 
@@ -38,6 +41,8 @@ class FileController extends Controller
                         'file_path' => $storedFilePath,        // Ruta relativa al disco para Storage::url()
                         'file_size' => $fileSize,
                         'file_type' => $fileMimeType,
+                        'category' => $folder->folder_name,
+                        'client_rfc' => $client->client_rfc
                     ]);
 
                 }
@@ -53,7 +58,7 @@ class FileController extends Controller
 
     public function destroy(File $file) {
 
-        Storage::delete($file->file_path);
+        Storage::disk('public')->delete($file->file_path);
 
         $file->delete();
 

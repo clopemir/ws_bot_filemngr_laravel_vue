@@ -18,6 +18,7 @@ return new class extends Migration
             $table->string('client_lname')->nullable();
             $table->string('client_rfc')->unique();
             $table->string('client_phone')->unique();
+            $table->string('wa_id')->nullable()->unique();
             $table->string('client_mail')->unique();
             $table->boolean('client_status')->default(true);
             $table->timestamps();

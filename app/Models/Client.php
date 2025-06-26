@@ -19,6 +19,15 @@ class Client extends Model
         'client_status'
     ];
 
+    public static function boot()
+{
+    parent::boot();
+
+    static::creating(function ($client) {
+        $client->wa_id = '521'.$client->client_phone;
+    });
+}
+
     public function agent(): BelongsTo {
         return $this->belongsTo(Agent::class);
     }

@@ -2,9 +2,10 @@
 
 namespace App\Models;
 
+use App\Models\Client;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class File extends Model
 {
@@ -14,8 +15,14 @@ class File extends Model
         'original_file_name',
         'file_path',
         'file_size',
-        'file_type'
+        'file_type',
+        'client_rfc',
+        'category'
     ];
+
+    public function client(): BelongsTo {
+        return $this->belongsTo(Client::class, 'client_rfc');
+    }
 
     public function folder() : BelongsTo {
         return $this->belongsTo(Folder::class);
