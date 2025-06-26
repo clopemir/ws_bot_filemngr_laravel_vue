@@ -6,11 +6,22 @@ use App\Http\Controllers\FileController;
 use App\Http\Controllers\AgentController;
 use App\Http\Controllers\ClientController;
 use App\Http\Controllers\FolderController;
+use App\Http\Controllers\WhatsApp\WaController;
 
 Route::get('/', function () {
+
+    //return redirect(route('login'));
     return Inertia::render('Welcome');
 })->name('home');
 
+
+// Para la verificación del webhook (GET)
+Route::get('webhook', [WaController::class, 'verifyWebhook']);
+// Para recibir mensajes (POST)
+Route::post('webhook', [WaController::class, 'receiveMessage']);
+
+// Ruta para el job de recordatorios (opcional, si quieres dispararlo manualmente o con cron externo)
+// Route::get('/wa/send-reminders', [WaController::class, 'sendScheduledReminders'])->name('wa.sendReminders'); // Proteger esta ruta
 
 Route::middleware(['auth'])->group(function () {
 
@@ -21,7 +32,7 @@ Route::middleware(['auth'])->group(function () {
     Route::resource('clients', ClientController::class)->except('show');
     Route::resource('agents', AgentController::class)->except('show');
     Route::resource('folders', FolderController::class);
-    Route::get('{path}', [FolderController::class, 'showByPath'])
+    Route::get('folder/{path}', [FolderController::class, 'showByPath'])
     ->where('path', '.*');
     //->name('folders.show');
     Route::resource('files', FileController::class);

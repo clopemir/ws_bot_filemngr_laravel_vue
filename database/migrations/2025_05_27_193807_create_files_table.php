@@ -21,6 +21,8 @@ return new class extends Migration
             $table->string('file_path');
             $table->bigInteger('file_size')->nullable();
             $table->string('file_type')->nullable();
+            $table->string('category')->nullable();
+            $table->string('client_rfc')->nullable();
             $table->timestamps();
         });
     }

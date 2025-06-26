@@ -51,12 +51,13 @@ function submit() {
       @drop.prevent="handleDrop"
     >
       <p class="text-gray-700 dark:text-gray-200">
-        Arrastra y suelta archivos aquí o haz clic para seleccionarlos
+        Clic aquí para seleccionar los archivos (PDF, DOCX, EXCEL, IMG)
       </p>
       <input
         ref="fileInput"
         type="file"
         class="hidden"
+        accept=".pdf, .xlsx, .docx, .jpg, .png"
         multiple
         @change="e => { form.files = Array.from(e.target.files); submit(); }"
       />

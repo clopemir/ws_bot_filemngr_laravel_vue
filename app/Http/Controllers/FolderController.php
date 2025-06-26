@@ -25,12 +25,7 @@ class FolderController extends Controller
 
     public function show(Folder $folder) {
 
-        //$subfolders = $folder->children();
-
-        //$files = $folder->files();
-
-        $folder->load('children', 'files');
-
+        $folder->load(['files', 'children' => function ($query) { $query->withCount('files'); },]);
 
         return Inertia::render('Folders/Show', [
             'folder' => $folder
@@ -39,7 +34,7 @@ class FolderController extends Controller
 
 
     public function showByPath($path) {
-        
+
         $folder = Folder::where('path', $path)->with(['children', 'files'])->firstOrFail();
 
         return Inertia::render('Folders/Show', [
