@@ -602,10 +602,10 @@ class WaController extends Controller
 
                 // $fileUrl = Storage::disk('public')->url($fileRecord->file_path);
 
-                $fileUrl = config('app.url_temp')."storage/".$fileRecord->file_path ;
+                $fileUrl = config('app.url')."storage/".$fileRecord->file_path ;
 
                 // Forzar HTTPS si es necesario y APP_URL está configurado para HTTPS
-                if (!Str::startsWith($fileUrl, 'https://') && Str::startsWith(config('app.url_temp'), 'https')) {
+                if (!Str::startsWith($fileUrl, 'https://') && Str::startsWith(config('app.url'), 'https')) {
                     $fileUrl = Str::replaceFirst('http://', 'https://', $fileUrl);
                 }
 
