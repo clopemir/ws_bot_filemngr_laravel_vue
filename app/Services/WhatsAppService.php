@@ -91,7 +91,7 @@ class WhatsAppService
     {
         // Considerar una imagen de cabecera genérica o configurable
        // $headerImageUrl = config('app.url') . '/images/bot_saludo.png'; // Ejemplo, asegúrate que esta imagen exista en public/images
-        $headerImageUrl = config('app.url_temp') . '/images/bot.png';
+        $headerImageUrl = config('app.url') . '/images/bot.png';
 
 
         $data = [
