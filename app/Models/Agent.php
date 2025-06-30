@@ -15,6 +15,15 @@ class Agent extends Model
         'agent_status'
     ];
 
+    public static function boot()
+{
+    parent::boot();
+
+    static::creating(function ($agent) {
+        $agent->agent_phone = '52'.$agent->agent_phone;
+    });
+}
+
     public function clients(): HasMany {
         return $this->hasMany(Client::class);
     }
