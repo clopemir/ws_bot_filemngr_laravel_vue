@@ -39,7 +39,7 @@ const props = defineProps({
                     <CardContent class="space-y-3">
                         <form @submit.prevent="createClient" class="space-y-6 items-center">
                             <div class="grid grid-cols-2 gap-6">
-                                <div v-for="(label, key) in { client_name: 'Nombre', client_lname: 'Apellido', client_rfc: 'RFC', client_phone: 'Telefono', client_mail: 'Correo' }"
+                                <div v-for="(label, key) in { client_name: 'Nombre | Empresa', client_lname: 'Apellido | Alias', client_rfc: 'RFC', client_phone: 'Telefono', client_mail: 'Correo' }"
                                     :key="key" class="grid w-full gap-2">
                                     <Label :for="key">{{ label }}</Label>
                                     <Input :id="key" v-model="form[key]" :type="key === 'client_mail' ? 'email' : 'text'"
