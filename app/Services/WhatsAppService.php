@@ -7,6 +7,7 @@ use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Http;
 use App\Http\Controllers\WhatsApp\WaController;
+use App\Exceptions\WhatsAppApiException;
 
 class WhatsAppService
 {
@@ -25,31 +26,7 @@ class WhatsAppService
         if (!$this->token || !$this->phoneNumberId) {
             Log::critical('WhatsApp service credentials (token or phone_number_id) are not configured.');
             // Considerar lanzar una excepción si la app no puede funcionar sin esto.
-            // throw new \InvalidArgumentException('WhatsApp service credentials are not configured.');
-        }
-    }
-
-    private function makeRequest(string $endpoint, array $data, string $method = 'POST')
-    {
-        if (!$this->token || !$this->phoneNumberId) {
-             Log::error('Cannot send WhatsApp message, service not configured properly.');
-             return null;
-        }
-        try {
-            $response = Http::withToken($this->token)
-                ->{$method}($endpoint, $data)
-                ->throw(); // Lanza excepción para errores 4xx/5xx
-
-            Log::info('WhatsApp API request successful.', ['endpoint' => $endpoint, 'response_status' => $response->status()]);
-            return $response->json();
-
-        } catch (Exception $e) {
-            Log::error("Error in WhatsApp API request to {$endpoint}: {$e->getMessage()}", [
-                'data' => $this->maskSensitiveData($data), // No loguear tokens o PII directamente
-                'status_code' => method_exists($e, 'getCode') ? $e->getCode() : 'N/A',
-                'response_body' => method_exists($e, 'getResponse') && $e->getResponse() ? $e->getResponse()->body() : 'N/A',
-            ]);
-            return null; // O re-lanzar una excepción personalizada
+            throw new \InvalidArgumentException('WhatsApp service credentials are not configured.');
         }
     }
 
@@ -63,90 +40,99 @@ class WhatsAppService
 
     public function markMessageAsRead(string $messageId)
     {
-        $data = [
-            "messaging_product" => "whatsapp",
-            "status" => "read",
-            "message_id" => $messageId
-        ];
-        // El endpoint para marcar como leído es el mismo que para enviar mensajes
-        return $this->makeRequest("{$this->baseUrl}/messages", $data);
+
+        $this->makeRequest('messages', [
+            'messaging_product' => 'whatsapp',
+            'status' => 'read',
+            'message_id' => $messageId,
+        ]);
     }
 
+    /**
+     * Envía un indicador de "escribiendo..."
+     */
+    public function sendTypingIndicator(string $wam_id)
+    {
+        $this->makeRequest('messages', [
+            'messaging_product' => 'whatsapp',
+            'status' => 'read',
+            'message_id' => $wam_id,
+            'typing_indicator' => [
+                'type' => 'text'
+            ]
+        ]);
+    }
+
+     /**
+     * Envía un mensaje de texto simple.
+     */
     public function sendTextMessage(string $to, string $text)
     {
-        $data = [
-            "messaging_product" => "whatsapp",
-            "recipient_type" => "individual",
-            "to" => $to,
+        return $this->sendMessage($to, [
             "type" => "text",
             "text" => [
                 "preview_url" => false, // Generalmente false para bots, a menos que envíes links intencionalmente
                 "body" => $text
             ]
-        ];
-        return $this->makeRequest("{$this->baseUrl}/messages", $data);
+            ]);
     }
 
+     /**
+     * Envía los botones de bienvenida iniciales.
+     */
     public function sendInitialButtons(string $to, string $userName)
     {
-        // Considerar una imagen de cabecera genérica o configurable
-       // $headerImageUrl = config('app.url') . '/images/bot_saludo.png'; // Ejemplo, asegúrate que esta imagen exista en public/images
+
         $headerImageUrl = config('app.url') . '/images/bot.png';
 
-
-        $data = [
-            "messaging_product" => "whatsapp",
-            "recipient_type" => "individual",
-            "to" => $to,
+        return $this->sendMessage($to, [
             "type" => "interactive",
             "interactive" => [
                 "type" => "button",
                 "header" => [
                     "type" => "image",
-                    "image" => ["link" => $headerImageUrl] // URL pública de la imagen
+                    'image' => ['link' => config('whatsapp_bot.welcome_image_url')]
+                    //"image" => ["link" => $headerImageUrl] // URL pública de la imagen
                 ],
-                "body" => ["text" => "Hola *{$userName}* ¡un gusto saludarte! 👋🏼\n\nSoy *PAI*, el Asistente Virtual de *FP Corporativo*, diseñado para ayudar 😉\n\nPor favor, selecciona una de las opciones para comenzar:"],
-                "footer" => ["text" => "Tu asistente virtual."], // Pie de página más corto
+                'body' => ['text' => trans('whatsapp.welcome', ['name' => $userName])],
+                'footer' => ['text' => trans('whatsapp.welcome_footer')],
                 "action" => [
                     "buttons" => [
-                        ["type" => "reply", "reply" => ["id" => "client", "title" => "Soy Cliente"]],
-                        ["type" => "reply", "reply" => ["id" => "no_client", "title" => "Aún no soy Cliente"]]
+                        ['type' => 'reply', 'reply' => ['id' => 'client', 'title' => trans('whatsapp.buttons.is_client')]],
+                        ['type' => 'reply', 'reply' => ['id' => 'no_client', 'title' => trans('whatsapp.buttons.is_not_client')]],
                     ]
                 ]
             ]
-        ];
-        return $this->makeRequest("{$this->baseUrl}/messages", $data);
+        ]);
+
     }
 
+    /**
+     * Envía la lista de opciones para un cliente verificado.
+     */
     public function sendClientOptions(string $to, string $userName, string $rfc)
     {
-        $data = [
-            "messaging_product" => "whatsapp",
-            "recipient_type" => "individual",
-            "to" => $to,
-            "type" => "interactive",
-            "interactive" => [
-                "type" => "list",
-                "header" => ["type" => "text", "text" => "Opciones para Clientes"],
-                "body" => ["text" => "Hola *{$userName}* 👋🏼\n\nEstas son tus opciones disponibles como cliente de FP Corporativo:\n"],
-                "footer" => ["text" => "Selecciona una opción"],
-                "action" => [
-                    "button" => 'Ver Opciones',
-                    "sections" => [
+        return $this->sendMessage($to, [
+            'type' => 'interactive',
+            'interactive' => [
+                'type' => 'list',
+                'header' => ['type' => 'text', 'text' => trans('whatsapp.client_options.header')],
+                'body' => ['text' => trans('whatsapp.client_options.body', ['name' => $userName])],
+                'footer' => ['text' => trans('whatsapp.client_options.footer')],
+                'action' => [
+                    'button' => trans('whatsapp.buttons.view_options'),
+                    'sections' => [
                         [
-                            "title" => 'Servicios Principales',
-                            "rows" => [
-                                ["id" =>  WaController::INTENT_ASK_DOC_CATEGORIES_PREFIX . $rfc, "title" => "Descargar Archivos", "description" => "Constancias, Opiniones, Acuses"],
-                                ["id" => WaController::INTENT_TALK_TO_AGENT, "title" => "Hablar con mi Agente", "description" => "Atención personalizada"],
-                                //["id" => "ia_chat", "title" => "Chatear con IA (PAI)", "description" => "Consultas generales y fiscales"]
-                            ]
-                        ]
-                        // Puedes agregar más secciones o filas si es necesario
-                    ]
-                ]
-            ]
-        ];
-        return $this->makeRequest("{$this->baseUrl}/messages", $data);
+                            'title' => trans('whatsapp.client_options.main_services_title'),
+                            'rows' => [
+                                ['id' => "ask_doc_cat_".$rfc, 'title' => 'Descargar Archivos', 'description' => 'Constancias, Opiniones, etc.'],
+                                ['id' => 'agent_chat', 'title' => 'Hablar con mi Agente', 'description' => 'Atención personalizada'],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ]);
     }
 
     public function sendNonClientOptions(string $to, string $userName)
@@ -180,40 +166,31 @@ class WhatsAppService
 
     public function sendInfo(string $to, string $userName)
     {
-        $headerImageUrl = config('app.url_temp') . '/images/logo-azul.png';
+        //$headerImageUrl = config('app.url_temp') . '/images/logo-azul.png';
 
-
-        $data = [
-            "messaging_product" => "whatsapp",
-            "recipient_type" => "individual",
-            "to" => $to,
+        return $this->sendMessage($to, [
             "type" => "interactive",
             "interactive" => [
                 "type" => "cta_url",
                 "header" => [
                     "type" => "image",
-                    "image" => ["link" => "https://fpcorporativo.com/uploads/20978518593.png"] // URL pública de la imagen
+                    'image' => ['link' => "https://fpcorporativo.com/uploads/20978518593.png"]
                 ],
-                "body" => ["text" => "Hola *{$userName}* \n\n*Necesitas ayuda?*\n\n*Conoce nuestros servicios, agenda tu cita y contáctanos fácilmente.*"],
+                'body' => ["text" => "Hola *{$userName}* \n\n*Necesitas ayuda?*\n\n*Conoce nuestros servicios, agenda tu cita y contáctanos fácilmente.*"],
+                'footer' => ["text" => "Estamos seguros de que podemos ayudarte."],
                 "action" => [
                     "name" => "cta_url",
                     "parameters" => [
                         "display_text" => "¡Haz clic aquí!",
                         "url" => "https://fpcorporativo.com"
                     ]
-                ],
-                "footer" => ["text" => "Estamos seguros de que podemos ayudarte."], // Pie de página más corto
+                ]
             ]
-        ];
-        return $this->makeRequest("{$this->baseUrl}/messages", $data);
+        ]);
     }
 
-
-
-
-    //Nuevo para categorias
-
-     /**
+    /**
+     * Nuevo para categorias
      * Envía una lista de categorías de documentos para que el usuario seleccione.
      */
     public function sendDocumentCategoryOptions(string $to, string $userName, string $rfc, array $categories)
@@ -228,7 +205,7 @@ class WhatsAppService
             if (empty($category)) continue;
             $rows[] = [
                 // El ID es construido por el controlador y luego parseado por él mismo.
-                "id" => WaController::INTENT_CHOOSE_DOC_CATEGORY_PREFIX . trim($category) . '_' . $rfc,
+                "id" => "cho_doc_cat_{$category}_{$rfc}",
                 "title" => Str::title(str_replace(['_', '-'], ' ', $category)), // Formatear nombre de categoría
                 "description" => "Descargar archivos de " . Str::lower($category)
             ];
@@ -245,53 +222,77 @@ class WhatsAppService
              // Considerar enviar un mensaje adicional si hay más de 10 categorías
         }
 
+        return $this->sendMessage($to, [
+            'type' => 'interactive',
+            'interactive' => [
+                'type' => 'list',
+                'header' => ['type' => 'text', 'text' => trans('whatsapp.doc_categories.header')],
+                'body' => ['text' => trans('whatsapp.doc_categories.body', ['name' => $userName, 'rfc' => $rfc])],
+                'footer' => ['text' => trans('whatsapp.doc_categories.footer')],
+                'action' => [
+                    'button' => trans('whatsapp.buttons.view_categories'),
+                    'sections' => [['title' => 'Categorías', 'rows' => $rows]],
+                ],
+            ],
+        ]);
 
-        $data = [
-            "messaging_product" => "whatsapp",
-            "recipient_type" => "individual",
-            "to" => $to,
-            "type" => "interactive",
-            "interactive" => [
-                "type" => "list",
-                "header" => ["type" => "text", "text" => "Selecciona Categoría"],
-                "body" => ["text" => "Hola *{$userName}* 👋🏼\n\nElige la categoría de documentos que deseas descargar para el RFC: *{$rfc}*\n"],
-                "footer" => ["text" => "Tus archivos disponibles"],
-                "action" => [
-                    "button" => "Ver Categorías",
-                    "sections" => [
-                        [
-                            "title" => "Categorías",
-                            "rows" => $rows
-                        ]
-                    ]
-                ]
-            ]
-        ];
-        return $this->makeRequest("{$this->baseUrl}/messages", $data);
     }
-
 
     public function sendDocument(string $to, string $documentUrl, string $caption, string $filename)
     {
         // Validar que la URL sea HTTPS, WhatsApp lo requiere para documentos.
         if (!Str::startsWith($documentUrl, 'https://')) {
             Log::error("URL de documento no es HTTPS: {$documentUrl}. No se puede enviar.");
-            // Podrías intentar enviar un mensaje de error al usuario aquí.
-            $this->sendTextMessage($to, "Hubo un error al preparar tu documento (URL no segura). Por favor, contacta a soporte.");
-            return null;
+            throw new WhatsAppApiException(trans('whatsapp.errors.unsafe_url'));
         }
 
-        $data = [
-            "messaging_product" => "whatsapp",
-            "recipient_type" => "individual",
-            "to" => $to,
-            "type" => "document",
-            "document" => [
-                "link" => $documentUrl,
-                "caption" => $caption,
-                "filename" => $filename
-            ]
-        ];
-        return $this->makeRequest("{$this->baseUrl}/messages", $data);
+        return $this->sendMessage($to, [
+            'type' => 'document',
+            'document' => [
+                'link' => $documentUrl,
+                'caption' => $caption,
+                'filename' => $filename,
+            ],
+        ]);
     }
+
+    /**
+     * Método base para enviar cualquier tipo de mensaje.
+     */
+    private function sendMessage(string $to, array $messageData): array
+    {
+        $payload = array_merge([
+            'messaging_product' => 'whatsapp',
+            'recipient_type' => 'individual',
+            'to' => $to,
+        ], $messageData);
+
+        return $this->makeRequest('messages', $payload);
+    }
+
+    private function makeRequest(string $endpoint, array $data, string $method = 'POST')
+    {
+        try {
+            $response = Http::withToken($this->token)
+                ->baseUrl($this->baseUrl)
+                ->{$method}($endpoint, $data)
+                ->throw(); // Lanza excepción
+
+            Log::info('WhatsApp API request successful.', ['endpoint' => $endpoint, 'response_status' => $response->status()]);
+            return $response->json();
+
+        } catch (Exception $e) {
+            Log::error("Error en la petición a la API de WhatsApp: {$e->getMessage()}", [
+                'endpoint' => $endpoint,
+                'exception_code' => $e->getCode(),
+                //'response_body' => $response->body() ?? 'N/A',
+            ]);
+            throw new WhatsAppApiException(
+                message: "Error al comunicarse con la API de WhatsApp: " . $e->getMessage(),
+                code: $e->getCode(),
+                previous: $e
+            ); // O re-lanzar una excepción personalizada
+        }
+    }
+
 }

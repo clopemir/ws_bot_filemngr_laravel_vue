@@ -32,6 +32,9 @@ Route::middleware(['auth'])->group(function () {
     Route::resource('clients', ClientController::class)->except('show');
     Route::resource('agents', AgentController::class)->except('show');
     Route::resource('folders', FolderController::class);
+    Route::get('folder/{folderPath?}/create', [FolderController::class, 'create'])
+    ->where('folderPath', '.*');
+
     Route::get('folder/{path}', [FolderController::class, 'showByPath'])
     ->where('path', '.*');
     //->name('folders.show');

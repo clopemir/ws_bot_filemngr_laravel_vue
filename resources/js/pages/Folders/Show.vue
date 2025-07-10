@@ -3,10 +3,8 @@ import AppLayout from '@/layouts/AppLayout.vue';
 import { Head, Link } from '@inertiajs/vue3';
 import { router } from '@inertiajs/vue3';
 import { Button } from '@/components/ui/button';
-import { Pencil, Trash, CirclePlus, ArrowBigLeft } from 'lucide-vue-next';
-import { useAgentForm } from '../../composables/useAgents';
+import { Trash, CirclePlus, ArrowBigLeft } from 'lucide-vue-next';
 import { computed } from 'vue';
-import { Input } from '@/components/ui/input';
 import Label from '@/components/ui/label/Label.vue';
 import FileUpload from '@/components/FileUpload.vue';
 
@@ -17,9 +15,6 @@ const props = defineProps({
         required: true,
     },
 });
-
-console.log(props.folder);
-
 
 
 const breadcrumbs = computed(() => [
@@ -51,7 +46,7 @@ function goToPage(url = null) {
         <div class="flex h-full flex-1 flex-col gap-4 rounded-xl p-4">
             <div class="flex">
                 <Button v-if="!folder.parent_id" as-child size="sm" class="bg-indigo-500 text-white hover:bg-indigo-700">
-                    <Link href="/folders/create"> <CirclePlus /> Crear</Link>
+                    <Link :href="`/folder/${folder.path}/create`"> <CirclePlus /> Crear</Link>
                 </Button>
                 <Button v-else as-child size="sm" class="bg-indigo-500 text-white hover:bg-indigo-700">
                     <Link :href="`/folders/${ folder.parent_id }`"> <ArrowBigLeft /> Volver</Link>

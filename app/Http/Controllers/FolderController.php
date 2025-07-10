@@ -11,16 +11,41 @@ use Illuminate\Support\Facades\Storage;
 
 class FolderController extends Controller
 {
-    public function index() {
-        $folders = Folder::with(['children', 'client'])->whereNull('parent_id')->paginate(10);
+    public function index(Request $request) {
+
+        // Si se proporciona un filtro de cliente, filtra las carpetas por ese cliente
+        $search = $request->input('search');
+
+        if ($search) {
+            // Filtra las carpetas que contienen el término de búsqueda en el nombre de la carpeta
+            $folders = Folder::with(['children', 'client'])
+                ->whereNull('parent_id')
+                ->where('folder_name', 'like', '%' . $search . '%')
+                ->orWhereHas('client', function ($query) use ($search) {
+                    $query->where('client_name', 'like', '%' . $search . '%');
+                })
+                ->whereNull('parent_id') // Solo carpetas raíz
+                ->paginate(10);
+
+        } else {
+            // Si no hay filtro, muestra todas las carpetas raíz
+            $folders = Folder::with(['children', 'client'])->whereNull('parent_id')->paginate(10);
+        }
+        //$folders = Folder::with(['children', 'client'])->whereNull('parent_id')->paginate(10);
 
         return Inertia::render('Folders/Index', [
-            'folders' => $folders
+            'folders' => $folders,
+            'search' => $search
         ]);
     }
 
-    public function create() {
-        return Inertia::render('Folders/Create');
+    public function create($folderPath) {
+
+        $folder = Folder::where('path', $folderPath)->firstOrFail();
+
+        return Inertia::render('Folders/Create', [
+            'folder' => $folder,
+        ]);
     }
 
     public function show(Folder $folder) {
@@ -58,12 +83,12 @@ class FolderController extends Controller
 
             Storage::disk('public')->makeDirectory($path);
 
-            return redirect()->back()->with('success', 'La carpeta se ha creado correcta´');
+            return redirect()->back()->with('success', 'La carpeta se ha creado correctamente');
 
         } catch (Exception $e) {
 
             Log::error($e->getMessage());
-            return redirect()->back()->with('error', 'No se genero la carpeta');
+            return redirect()->back()->with('error', 'Error al crear la carpeta: ' . $e->getMessage());
         }
 
 
