@@ -1,24 +1,19 @@
 <script setup>
 import AppLayout from '@/layouts/AppLayout.vue';
-import { Head, Link } from '@inertiajs/vue3';
-import { router } from '@inertiajs/vue3';
+import { Head, Link, router, usePage } from '@inertiajs/vue3';
+import { ref } from 'vue';
 import { Button } from '@/components/ui/button';
-import { Pencil, Trash, CirclePlus } from 'lucide-vue-next';
-import { useAgentForm } from '../../composables/useAgents';
 
-
-const { deleteAgent } = useAgentForm()
 
 
 const props = defineProps({
     folders: {
         type: Object,
         required: true,
-    },
+    }
 });
 
-console.log(props.folders.data);
-
+const search = ref(usePage().props.search ?? '');
 
 const breadcrumbs = [
     {
@@ -33,6 +28,10 @@ function goToPage(url = null) {
     }
 }
 
+function submitSearch() {
+  router.get('/folders', { search: search.value }, { preserveScroll: true, preserveState: true });
+}
+
 
 
 </script>
@@ -42,10 +41,22 @@ function goToPage(url = null) {
 
     <AppLayout :breadcrumbs="breadcrumbs">
         <div class="flex h-full flex-1 flex-col gap-4 rounded-xl p-4">
-            <div class="flex">
-                <Button as-child size="sm" class="bg-indigo-500 text-white hover:bg-indigo-700">
+            <div class="">
+                <!-- <Button as-child size="sm" class="bg-indigo-500 text-white hover:bg-indigo-700">
                     <Link href="/folders/create"> <CirclePlus /> Crear</Link>
-                </Button>
+                </Button> -->
+                <form @submit.prevent="submitSearch" class="flex items-center justify-end gap-3 mb-4">
+                    <input
+                        v-model="search"
+                        @input="submitSearch"
+                        type="text"
+                        placeholder="Buscar carpeta..."
+                        class="w-full max-w-xs rounded-md border px-3 py-2 text-sm text-gray-700 dark:text-white dark:bg-neutral-800 dark:border-neutral-700"
+                    />
+                    <Button type="submit" class="bg-blue-600 text-white hover:bg-blue-800">
+                        Buscar
+                    </Button>
+                </form>
             </div>
             <div class="w-full overflow-x-auto grid md:grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-6">
                 <!-- <div class="min-w-full rounded-xl border border-gray-200 shadow-sm dark:border-gray-700">
@@ -75,7 +86,7 @@ function goToPage(url = null) {
                         </tbody>
                     </table>
                 </div> -->
-                <a v-for="folder in folders.data" :key="folder.id" :href="`/folders/${folder.id}`" class="group flex flex-col bg-white border shadow-md rounded-xl hover:shadow-lg focus:outline-none focus:shadow-lg transition dark:bg-neutral-900 dark:border-neutral-800">
+                <a v-for="folder in folders.data" :key="folder.id" :href="`/folder/${folder.path}`" class="group flex flex-col bg-white border shadow-md rounded-xl hover:shadow-lg focus:outline-none focus:shadow-lg transition dark:bg-neutral-900 dark:border-neutral-800">
                         <div class="p-4 md:p-5">
                             <div class="flex justify-between items-center gap-x-3">
                                 <div class="grow">
