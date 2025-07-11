@@ -12,12 +12,28 @@ use Illuminate\Support\Facades\Storage;
 
 class ClientController extends Controller
 {
-    public function index() {
+    public function index(Request $request) {
 
-        $clients = Client::with('agent')->latest()->paginate(10);
+        $search = $request->input('search');
+        if ($search) {
+            $clients = Client::with('agent')
+                ->where('client_name', 'like', '%' . $search . '%')
+                ->orWhere('client_lname', 'like', '%' . $search . '%')
+                ->orWhere('client_rfc', 'like', '%' . $search . '%')
+                ->orWhereHas('agent', function ($query) use ($search) {
+                    $query->where('agent_name', 'like', '%' . $search . '%');
+                })
+                ->latest()
+                ->paginate(10);
+        } else {
+            $clients = Client::with('agent')->latest()->paginate(10);
+        }
+
+      //  $clients = Client::with('agent')->latest()->paginate(10);
 
         return Inertia::render('Clients/Index', [
-            'clients' => $clients
+            'clients' => $clients,
+            'search' => $search
         ]);
     }
 
@@ -95,6 +111,9 @@ class ClientController extends Controller
             'agent_id' => 'required|exists:agents,id',
             'client_name' => 'required|string|max:225',
             'client_lname' => 'string|max:225',
+            'client_rfc' => 'required|string|max:13|regex:/^([a-zA-ZñÑ&]{3,4})\d{6}(?:[a-zA-Z\d]{3})?$/',
+            'client_phone' => 'required|string|max:10',
+            'client_mail' => 'email|max:100',
             'client_status' => 'boolean|required'
         ]);
         $validated['client_rfc'] = strtolower($validated['client_rfc']);
