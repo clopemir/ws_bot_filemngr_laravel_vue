@@ -50,8 +50,8 @@ const {form, updateClient} = useClientForm(props.client)
                                     <Label :for="key">{{ label }}</Label>
                                     <Input :id="key" v-model="form[key]"
                                         :type="key === 'client_mail' ? 'email' : 'text'"
-                                        :disabled="['client_rfc', 'client_phone', 'client_mail'].includes(key)"
-                                        :class="['client_mail', 'client_rfc', 'client_phone'].includes(key) ? 'bg-gray-100 cursor-not-allowed' : ''"
+                                        :disabled="['', '', ''].includes(key)"
+                                        :class="['', '', ''].includes(key) ? 'bg-gray-100 cursor-not-allowed' : ''"
                                         :placeholder="label" :required="key" />
                                     <InputError :message="form.errors[key]" />
                                 </div>

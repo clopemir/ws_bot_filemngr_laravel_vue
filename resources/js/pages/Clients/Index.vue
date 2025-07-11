@@ -1,8 +1,7 @@
 <script setup>
 import AppLayout from '@/layouts/AppLayout.vue';
-import { Head, Link } from '@inertiajs/vue3';
-import { router } from '@inertiajs/vue3';
-import { computed } from 'vue';
+import { Head, Link, router, usePage } from '@inertiajs/vue3';
+import { computed, ref } from 'vue';
 import { Button } from '@/components/ui/button';
 import { Pencil, Trash, CirclePlus } from 'lucide-vue-next';
 import { useClientForm } from '../../composables/useClients';
@@ -19,6 +18,8 @@ const props = defineProps({
 
 const clients = computed(() => props.clients)
 
+const search = ref(usePage().props.search ?? '');
+
 const breadcrumbs = [
     {
         title: 'Clientes',
@@ -32,6 +33,10 @@ function goToPage(url = null) {
     }
 }
 
+function submitSearch() {
+    router.get('/clients', { search: search.value }, { preserveScroll: true, preserveState: true });
+}
+
 
 
 </script>
@@ -41,10 +46,22 @@ function goToPage(url = null) {
 
     <AppLayout :breadcrumbs="breadcrumbs">
         <div class="flex h-full flex-1 flex-col gap-4 rounded-xl p-4">
-            <div class="flex">
+            <div class="flex flex-row items-center justify-between mb-4">
                 <Button as-child size="sm" class="bg-indigo-500 text-white hover:bg-indigo-700">
                     <Link href="/clients/create"> <CirclePlus /> Crear</Link>
                 </Button>
+                <form @submit.prevent="submitSearch" class="flex items-center justify-end gap-3 mb-4">
+                    <input
+                        v-model="search"
+                        @input="submitSearch"
+                        type="text"
+                        placeholder="Nombre, RFC o Agente..."
+                        class="w-full max-w-xs rounded-md border px-3 py-2 text-sm text-gray-700 dark:text-white dark:bg-neutral-800 dark:border-neutral-700"
+                    />
+                    <Button type="submit" class="bg-blue-600 text-white hover:bg-blue-800">
+                        Buscar
+                    </Button>
+                </form>
             </div>
             <div class="w-full overflow-x-auto">
                 <div class="min-w-full rounded-xl border border-gray-200 shadow-sm dark:border-gray-700">
