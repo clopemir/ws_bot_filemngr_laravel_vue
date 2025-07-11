@@ -42,7 +42,7 @@ class ChatStateService
             case Chat::ACTION_REQUEST_DOCUMENT_CATEGORY:
                 $this->handleRequestDocumentCategoryState($chat, $payload, $intent);
                 break;
-            case Chat::INTENT_IA_CHAT:
+            case Chat::ACTION_IA_CONVERSATION:
                 $this->handleIaConversationState($chat, $payload);
                 break;
             // Otros estados...
@@ -59,6 +59,7 @@ class ChatStateService
     public function resetChat(Chat $chat): void
     {
         $chat->update(['action' => Chat::ACTION_BASE, 'client_rfc' => null, 'client_id' => null]);
+
         $this->whatsAppService->sendTextMessage($chat->user_phone, "Gracias por contactarnos *{$chat->user_name}*\n\nSi necesitas algo más, no dudes en escribirnos de nuevo. 👋🏼");
     }
 
@@ -66,6 +67,8 @@ class ChatStateService
 
     private function handleBaseState(Chat $chat, object $payload, object $intent): void
     {
+        $this->whatsAppService->sendTypingIndicator($payload->messageId);
+
         if ($payload->userMessage === 'client') {
             $chat->update(['action' => Chat::ACTION_REQUEST_RFC]);
             $this->whatsAppService->sendTextMessage($payload->userPhone, trans('whatsapp.request_rfc'));
@@ -84,6 +87,8 @@ class ChatStateService
         $rfc = Str::upper(Str::squish($payload->userMessage));
 
         if (!$this->clientService->isValidRfcFormat($rfc)) {
+            $this->whatsAppService->sendTypingIndicator($payload->messageId);
+
             $this->whatsAppService->sendTextMessage($payload->userPhone, trans('whatsapp.errors.invalid_rfc'));
             return; // Mantenemos el estado para que reintente.
         }
@@ -98,6 +103,8 @@ class ChatStateService
                 'action' => Chat::ACTION_CLIENT_OPTIONS,
             ]);
             try {
+                $this->whatsAppService->sendTypingIndicator($payload->messageId);
+
 
                 $this->whatsAppService->sendClientOptions($payload->userPhone, $client->client_name, Str::lower($rfc));
 
@@ -109,6 +116,8 @@ class ChatStateService
             }
 
         } else {
+            $this->whatsAppService->sendTypingIndicator($payload->messageId);
+
             $this->whatsAppService->sendTextMessage($payload->userPhone, trans('whatsapp.errors.rfc_not_found', ['rfc' => $rfc]));
             $this->resetChat($chat);
         }
@@ -227,13 +236,14 @@ class ChatStateService
         }
     }
 
-    private function handleIaConversationState(Chat $chat, object $payload): void
+    public function handleIaConversationState(Chat $chat, object $payload): void
     {
         // Verificar si el chat ya está en conversación con IA
+        $this->whatsAppService->sendTypingIndicator($payload->messageId);
 
         // Continuar conversación con IA
-        $botResponse = $this->geminiService->chatWithIA($payload['user_message'], $payload['user_name'], (array)$chat->context);
-        $this->whatsAppService->sendTextMessage($payload['user_phone'], $botResponse); //. "\n\n_(Escribe 'salir' para volver al menú)_"
+        $botResponse = $this->geminiService->chatWithIA($payload->userMessage, $payload->userName, $chat->context);
+        $this->whatsAppService->sendTextMessage($payload->userPhone, $botResponse); //. "\n\n_(Escribe 'salir' para volver al menú)_"
         // El estado sigue siendo ACTION_IA_CONVERSATION
     }
 }

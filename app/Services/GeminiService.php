@@ -120,19 +120,29 @@ class GeminiService
 
     public function chatWithIA(string $userMessage, string $userName, array $chatHistory = []): string
     {
-        $systemPrompt = "Eres PAI, un asistente virtual amigable y experto en temas fiscales de México. Tu objetivo es ayudar a {$userName} con sus consultas. Mantén un tono casual y servicial. Si no sabes una respuesta, indícalo honestamente y sugiere consultar a un especialista de FP Corporativo. Para mejorar la interacción trata a {$userName} como si fuera tu compañero de tranajo.";
+        $systemPrompt = "Eres PAI, un asistente virtual amigable y experto en temas fiscales de México. Tu objetivo es ayudar a {$userName} con sus consultas. Mantén un tono casual y servicial. Si no sabes una respuesta, indícalo honestamente y sugiere consultar a un especialista de FP Corporativo. Para mejorar la interacción trata a {$userName} como si fuera tu compañero de trabajo. Puedes presentarte la primera vez y explicar un alcance de tus capacidades. No es necesario que incluyas el nombre del usuario en tus respuestas, pero si lo haces, usa siempre el nombre {$userName}.";
+
+        // $contents = [
+        //     ['role' => 'user', 'parts' => [['text' => $systemPrompt]]]
+        // ];
+
+        // if (empty($chatHistory)) {
+        //     $contents[] = ['role' => 'model', 'parts' => [['text' => "¡Hola {$userName}! Soy PAI, tu asistente fiscal. ¿En qué te puedo ayudar hoy?"]]];
+        // }
 
         $contents = [
-            ['role' => 'user', 'parts' => [['text' => $systemPrompt]]]
+            ['role' => 'user', 'parts' => [['text' => $systemPrompt]]],
+            // La respuesta inicial del modelo para guiar la conversación.
+            ['role' => 'model', 'parts' => [['text' => "¡Hola {$userName}! Soy PAI, tu asistente fiscal. ¿En qué te puedo ayudar hoy?"]]]
         ];
 
-        if (empty($chatHistory)) {
-            $contents[] = ['role' => 'model', 'parts' => [['text' => "¡Hola {$userName}! Soy PAI, tu asistente fiscal. ¿En qué te puedo ayudar hoy?"]]];
-        }
+        $historyLimit = 10; // Limitar el historial a los últimos 10 mensajes para evitar sobrecargar la IA
+        $limitHistory = array_slice($chatHistory, -$historyLimit); // Asegurarse de que no exceda el límite
+
 
         // Añadir historial de chat (simplificado)
         // $chatHistory debe ser un array de arrays ['role' => 'user'/'model', 'parts' => [['text' => ...]]]
-        foreach ($chatHistory as $entry) {
+        foreach ($limitHistory as $entry) {
             if (isset($entry['role']) && isset($entry['content'])) { // Adaptar si la estructura del historial es diferente
                  $contents[] = ['role' => $entry['role'], 'parts' => [['text' => $entry['content']]]];
             }
