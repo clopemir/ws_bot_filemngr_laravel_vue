@@ -54,7 +54,6 @@ class WaController extends Controller
             if (!$payload) {
                 return response()->json(['status' => 'ok', 'message' => 'Unsupported message type']);
             }
-
             // Marcar mensaje como leído inmediatamente.
             $this->whatsAppService->markMessageAsRead($payload->messageId);
 
@@ -62,17 +61,30 @@ class WaController extends Controller
 
             $chat = $this->findOrCreateChat($payload);
 
+            $isAgent = Agent::where('agent_phone', $payload->userPhone)->exists();
+
+            if($isAgent){
+
+                $chat->update(['action' => Chat::ACTION_IA_CONVERSATION]);
+
+                $this->chatStateService->handleState($chat, $payload, $intent);
+
+                $chat->addMessageToContext($payload->userMessage, 'user');
+
+                return response()->json(['status' => 'ok', 'action' => $chat->action]);
+            }
+            if ($chat->wasRecentlyCreated && !$isAgent) {
+
+                $this->whatsAppService->sendInitialButtons($chat->user_phone, $chat->user_name);
+                return response()->json(['status' => 'ok', 'action' => $chat->action]);
+            }
+
             if (!$chat) {
                 throw new \RuntimeException("No se pudo crear o encontrar el chat para el usuario.");
             }
 
             $chat->addMessageToContext($payload->userMessage, 'user');
 
-            if (Agent::where('agent_phone', $chat->user_phone)->exists()) {
-                $chat->update(['action' => Chat::INTENT_IA_CHAT]);
-                $this->chatStateService->handleState($chat, $payload, (object)['name' => 'ia_chat']);
-                return response()->json(['status' => 'ok', 'action' => 'agent']);
-            }
 
             // Si el usuario quiere cancelar, reseteamos el chat.
             if ($intent->name === 'reset') {
@@ -89,7 +101,7 @@ class WaController extends Controller
             // Delegamos la lógica de qué hacer a un servicio especializado.
             $this->chatStateService->handleState($chat, $payload, $intent);
 
-            return response()->json(['status' => 'ok', 'action' => $chat->action]);
+            return $chat;
 
         } catch (WhatsAppApiException $e) {
             // Si falla una llamada a la API de WhatsApp (ej. enviar un mensaje), lo logueamos.
@@ -129,10 +141,7 @@ class WaController extends Controller
             ]
         );
 
-        // Si el chat es nuevo, le damos la bienvenida.
-        if ($chat->wasRecentlyCreated) {
-            $this->whatsAppService->sendInitialButtons($chat->user_phone, $chat->user_name);
-        }
+
 
         return $chat;
     }

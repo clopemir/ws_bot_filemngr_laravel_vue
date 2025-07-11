@@ -174,17 +174,18 @@ class WhatsAppService
                 "type" => "cta_url",
                 "header" => [
                     "type" => "image",
-                    'image' => ['link' => "https://fpcorporativo.com/uploads/20978518593.png"]
+                    "image" => ["link" => "https://fpcorporativo.com/uploads/20978518593.png"]
                 ],
-                'body' => ["text" => "Hola *{$userName}* \n\n*Necesitas ayuda?*\n\n*Conoce nuestros servicios, agenda tu cita y contáctanos fácilmente.*"],
-                'footer' => ["text" => "Estamos seguros de que podemos ayudarte."],
+                "body" => ["text" => "Hola *{$userName}* \n\n*Necesitas ayuda?*\n\n*Conoce nuestros servicios, agenda tu cita y contáctanos fácilmente.*"],
                 "action" => [
                     "name" => "cta_url",
                     "parameters" => [
                         "display_text" => "¡Haz clic aquí!",
                         "url" => "https://fpcorporativo.com"
                     ]
-                ]
+                ],
+                "footer" => ["text" => "Estamos seguros de que podemos ayudarte."],
+
             ]
         ]);
     }
