@@ -52,10 +52,9 @@ class ClientController extends Controller
             'client_lname' => 'string|max:225',
             'client_rfc' => 'required|string|max:13|regex:/^([a-zA-ZñÑ&]{3,4})\d{6}(?:[a-zA-Z\d]{3})?$/|unique:clients,client_rfc',
             'client_phone' => 'required|string|max:10',
-            'client_mail' => 'email|max:100|unique:clients,client_mail'
+            'client_mail' => 'email|max:100'
         ],[
             'client_rfc.unique' => 'El RFC ya está registrado en el sistema.',
-            'client_mail.unique' => 'El mail ya está registrado en el sistema.'
         ]);
 
 

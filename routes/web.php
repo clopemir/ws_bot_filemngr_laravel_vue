@@ -11,7 +11,7 @@ use App\Http\Controllers\WhatsApp\WaController;
 Route::get('/', function () {
 
     //return redirect(route('login'));
-    return Inertia::render('Welcome');
+    return Inertia::render('Home');
 })->name('home');
 
 
