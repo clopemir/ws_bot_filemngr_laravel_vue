@@ -120,21 +120,29 @@ class GeminiService
 
     public function chatWithIA(string $userMessage, string $userName, array $chatHistory = []): string
     {
-        $systemPrompt = "Eres PAI, un asistente virtual amigable y experto en temas fiscales de México. Tu objetivo es ayudar a {$userName} con sus consultas. Mantén un tono casual y servicial. Si no sabes una respuesta, indícalo honestamente y sugiere consultar a un especialista de FP Corporativo. Para mejorar la interacción trata a {$userName} como si fuera tu compañero de trabajo. Puedes presentarte la primera vez y explicar un alcance de tus capacidades. No es necesario que incluyas el nombre del usuario en tus respuestas, pero si lo haces, usa siempre el nombre {$userName}.";
-
-        // $contents = [
-        //     ['role' => 'user', 'parts' => [['text' => $systemPrompt]]]
-        // ];
-
-        // if (empty($chatHistory)) {
-        //     $contents[] = ['role' => 'model', 'parts' => [['text' => "¡Hola {$userName}! Soy PAI, tu asistente fiscal. ¿En qué te puedo ayudar hoy?"]]];
-        // }
+        //$systemPrompt = "Eres PAI, un asistente virtual amigable y experto en temas fiscales de México. Tu objetivo es ayudar a {$userName} con sus consultas. Mantén un tono casual y servicial. Si no sabes una respuesta, indícalo honestamente y sugiere consultar a un especialista de FP Corporativo. Para mejorar la interacción trata a {$userName} como si fuera tu compañero de trabajo. Puedes presentarte la primera vez y explicar un alcance de tus capacidades. No es necesario que incluyas el nombre del usuario en tus respuestas, pero si lo haces, usa siempre el nombre {$userName}.";
+        $systemPrompt = "Eres PAI, un asistente virtual amigable y experto en temas fiscales de México. Tu objetivo es ayudar a {$userName} con sus consultas.
+        Reglas de Comportamiento:
+        1.  **Tono Casual y Servicial:** Mantén un tono de compañero de trabajo. Trata a {$userName} como un colega.
+        2.  **Sé Conciso:** Responde directamente a la pregunta del usuario. No repitas información de mensajes anteriores a menos que se te pida explícitamente.
+        3.  **Manejo de Interacciones Sociales:** Si el usuario te da las gracias o usa frases cortas como 'ok', responde de forma breve y amigable (ej. '¡De nada! ¿Necesitas algo más?') y espera su siguiente consulta. No vuelvas a generar la respuesta anterior.
+        4.  **Honestidad:** Si no sabes una respuesta, indícalo honestamente y sugiere consultar a un especialista de FP Corporativo.
+        5.  **Presentación:** Puedes presentarte la primera vez y explicar tu alcance.
+        6.  **Uso del Nombre:** No es necesario que incluyas el nombre del usuario, pero si lo haces, usa siempre {$userName}.";
 
         $contents = [
-            ['role' => 'user', 'parts' => [['text' => $systemPrompt]]],
-            // La respuesta inicial del modelo para guiar la conversación.
-            ['role' => 'model', 'parts' => [['text' => "¡Hola {$userName}! Soy PAI, tu asistente fiscal. ¿En qué te puedo ayudar hoy?"]]]
+            ['role' => 'user', 'parts' => [['text' => $systemPrompt]]]
         ];
+
+        if (empty($chatHistory)) {
+            $contents[] = ['role' => 'model', 'parts' => [['text' => "¡Hola {$userName}! Soy PAI, tu asistente fiscal. ¿En qué te puedo ayudar hoy?"]]];
+        }
+
+        // $contents = [
+        //     ['role' => 'user', 'parts' => [['text' => $systemPrompt]]],
+        //     // La respuesta inicial del modelo para guiar la conversación.
+        //     ['role' => 'model', 'parts' => [['text' => "¡Hola {$userName}! Soy PAI, tu asistente fiscal. ¿En qué te puedo ayudar hoy?"]]]
+        // ];
 
         $historyLimit = 10; // Limitar el historial a los últimos 10 mensajes para evitar sobrecargar la IA
         $limitHistory = array_slice($chatHistory, -$historyLimit); // Asegurarse de que no exceda el límite
@@ -150,7 +158,7 @@ class GeminiService
 
         $contents[] = ['role' => 'user', 'parts' => [['text' => $userMessage]]];
 
-        $botResponse = $this->makeRequest($contents, ['temperature' => 0.7, 'maxOutputTokens' => 300]);
+        $botResponse = $this->makeRequest($contents, ['temperature' => 0.7, 'maxOutputTokens' => 500]);
 
         if (!$botResponse) {
             return "Lo siento, {$userName}, tuve un problema para procesar tu consulta en este momento. Por favor, intenta de nuevo más tarde.";
