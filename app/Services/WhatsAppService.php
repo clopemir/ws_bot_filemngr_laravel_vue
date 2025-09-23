@@ -239,7 +239,7 @@ class WhatsAppService
 
     }
 
-    public function sendDocument(string $to, string $documentUrl, string $caption, string $filename)
+    public function sendDocument(string $to, string $documentUrl,  string $filename, ?string $caption = '')
     {
         // Validar que la URL sea HTTPS, WhatsApp lo requiere para documentos.
         if (!Str::startsWith($documentUrl, 'https://')) {

@@ -70,6 +70,42 @@ class GeminiService
         }
     }
 
+    public function processMessage(string $message)
+    {
+        $prompt = $this->buildPrompt($message);
+
+        Log::info('Processing message with Gemini.', ['message' => Str::limit($prompt, 100)]);
+
+        try {
+
+            $response = Http::retry(2, 100)
+                ->post("{$this->apiUrl}?key={$this->apiKey}", [
+                    'contents' => [['role' => 'user', 'parts' => [['text' => $prompt]]]],
+                    'generationConfig' => ['temperature' => 0.3, 'maxOutputTokens' => 150]
+                ])
+                ->throw();
+
+
+
+            if ($response->successful() && !empty($response->json('candidates.0.content.parts.0.text'))) {
+                $responseText = $response->json('candidates.0.content.parts.0.text', '');
+
+                $jsonResponse = trim(str_replace(['```json', '```'], '', $responseText));
+
+            Log:info('Gemini response received.', ['response' => Str::limit($jsonResponse, 200)]);
+
+                return json_decode($jsonResponse, true) ?: '';
+
+            } else {
+                Log::info('Gemini response was empty or invalid.', ['message' => $message]);
+                return '';
+            }
+        } catch (Exception $e) {
+            Log::error("Error processing message with Gemini: {$e->getMessage()}", ['message' => $message]);
+            return '';
+        }
+    }
+
     private function maskGeminiPayload(array $payload): array
     {
         // Si el payload contiene información sensible del usuario, enmascararla aquí.
@@ -156,6 +192,8 @@ class GeminiService
             }
         }
 
+        //eliminar saltos de linea en el mensaje del usuario
+        //$userMessage = str_replace(["\n", "\r"], ' ', $userMessage);
         $contents[] = ['role' => 'user', 'parts' => [['text' => $userMessage]]];
 
         $botResponse = $this->makeRequest($contents, ['temperature' => 0.7, 'maxOutputTokens' => 500]);
@@ -166,5 +204,43 @@ class GeminiService
 
         Log::info("Gemini IA response generated for user {$userName}");
         return $botResponse;
+    }
+
+    public function buildPrompt(string $userMessage) {
+        return <<<PROMPT
+        Eres un API que procesa texto de un agente fiscal y extrae información.
+        Tu objetivo es identificar la intención del agente y extraer el nombre de un cliente y el nombre de un documento.
+        Responde SIEMPRE y ÚNICAMENTE con un objeto JSON.
+
+        IMPORTANTE: El usuario puede escribir con errores ortográficos o de tipeo o puede no escribir el nombre del cliente entre comillas. Debes interpretar su intención lo mejor posible.
+
+        El JSON debe tener tres claves: 'intent', 'client_name', y 'document_name'.
+        - 'intent': Puede ser 'fetch_document' o 'chat'.
+        - 'client_name': El nombre del cliente que se menciona. Si no se menciona, debe ser null.
+        - 'document_name': El nombre o tipo de documento solicitado. Si no se menciona, debe ser null.
+
+        Si el usuario está pidiendo un archivo, constancia, documento, etc., de un cliente, la intención es 'fetch_document'.
+        Si el usuario está haciendo una pregunta general, saludando o conversando, la intención es 'chat'.
+
+        Ejemplos:
+        1. Texto: "Hola, quiero la constancia del cliente 'Cliente Prueba 1'"
+           Respuesta: {"intent": "fetch_document", "client_name": "Cliente Prueba 1", "document_name": "constancias"}
+
+        2. Texto: "dame la Opinión de cumplimiento de la empresa 'Servicios Contables MX'"
+           Respuesta: {"intent": "fetch_document", "client_name": "Servicios Contables MX", "document_name": "opiniones"}
+
+        3. Texto: "Buenas tardes, ¿cuál es el IVA para alimentos de mascotas?"
+           Respuesta: {"intent": "ia_conversation", "client_name": null, "document_name": null}
+
+        4. Texto: "necesito los impuestos de 'Ferretería El Martillo Feliz'"
+            Respuesta: {"intent": "fetch_document", "client_name": "Ferretería El Martillo Feliz", "document_name": "impuestos"}
+
+        5. Texto: "Hola, cómo estás?"
+            Respuesta: {"intent": "ia_conversation", "client_name": null, "document_name": null}
+
+        Ahora, procesa el siguiente texto:
+        Texto: "{$userMessage}"
+        Respuesta:
+        PROMPT;
     }
 }

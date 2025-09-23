@@ -242,7 +242,7 @@ class ChatStateService
         $this->whatsAppService->sendTypingIndicator($payload->messageId);
 
         // Continuar conversación con IA
-        $botResponse = $this->geminiService->chatWithIA($payload->userMessage, $payload->userName, $chat->context);
+        $botResponse = $this->geminiService->chatWithIA(str_replace(["\n", "\r"], ' ', $payload->userMessage), $payload->userName, $chat->context);
         $this->whatsAppService->sendTextMessage($payload->userPhone, $botResponse); //. "\n\n_(Escribe 'salir' para volver al menú)_"
         // El estado sigue siendo ACTION_IA_CONVERSATION
     }

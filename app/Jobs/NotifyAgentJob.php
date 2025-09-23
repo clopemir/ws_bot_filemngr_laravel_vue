@@ -54,7 +54,7 @@ class NotifyAgentJob implements ShouldQueue
             $message = trans('whatsapp.agent_notification_message', [
                 'agent_name' => $agent->agent_name,
                 'client_name' => $this->client->client_name,
-                'client_phone' => $this->client->client_phone,
+                'client_phone' => $this->client->wa_id,
                 'timestamp' => now()->translatedFormat('l, d F Y H:i'),
             ]);
 
