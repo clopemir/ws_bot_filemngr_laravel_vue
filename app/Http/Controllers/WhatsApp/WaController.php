@@ -17,15 +17,21 @@ use App\Services\WhatsApp\IntentParser;
 use App\Exceptions\WhatsAppApiException;
 use App\Services\WhatsApp\PayloadParser;
 use App\Http\Requests\WhatsAppWebhookRequest;
+use App\Services\AgentDocumentService;
+use App\Services\GeminiService;
 
 class WaController extends Controller
 {
     public function __construct(
         private WhatsAppService $whatsAppService,
-        private ChatStateService $chatStateService
+        private AgentDocumentService $agentDocumentService,
+        private ChatStateService $chatStateService,
+        private GeminiService $geminiService
     ) {
         $this->whatsAppService = $whatsAppService;
         $this->chatStateService = $chatStateService;
+        $this->agentDocumentService = $agentDocumentService;
+        $this->geminiService = $geminiService;
     }
 
     /**
@@ -63,15 +69,24 @@ class WaController extends Controller
 
             $isAgent = Agent::where('agent_phone', $payload->userPhone)->exists();
 
+            $agent = Agent::where('agent_phone', $payload->userPhone)->first();
+
             if($isAgent){
+                try {
 
-                $chat->update(['action' => Chat::ACTION_IA_CONVERSATION]);
+                    $this->handleAgentMessage($agent, $payload->userMessage, $chat, $payload);
 
-                $this->chatStateService->handleState($chat, $payload, $intent);
+                    $chat->addMessageToContext($payload->userMessage, 'user');
 
-                $chat->addMessageToContext($payload->userMessage, 'user');
+                    return response()->json(['status' => 'ok', 'action' => $chat->action]);
+                } catch (Exception $e) {
+                    Log::error("Error al manejar el mensaje del agente: {$e->getMessage()}", [
+                        'wa_id' => $payload->waId ?? 'N/A',
+                        'trace' => $e->getTraceAsString(),
+                    ]);
+                }
 
-                return response()->json(['status' => 'ok', 'action' => $chat->action]);
+
             }
             if ($chat->wasRecentlyCreated && !$isAgent) {
 
@@ -144,5 +159,49 @@ class WaController extends Controller
 
 
         return $chat;
+    }
+
+     // Nueva función pata tratar el mensaje proveniente de un agente
+
+    private function handleAgentMessage($agent, $message, $chat, $payload)
+    {
+
+        $intent = $this->geminiService->processMessage($message);
+
+        if(!$intent || !isset($intent['intent'])) {
+            $this->whatsAppService->sendTextMessage($agent->agent_phone, "No entendí tu mensaje. ¿Podrías reformularlo?");
+            return;
+        }
+
+        if ($intent['intent'] === 'fetch_document') {
+
+            if (empty($intent['client_name']) || empty($intent['document_name'])) {
+                $this->whatsAppService->sendTextMessage($agent->agent_phone, "Por favor, especifica el nombre del cliente y el documento que necesitas. Ejemplo: 'constancia de Cliente Prueba 1'");
+                return;
+            }
+
+            // Llamar al servicio que busca los documentos
+            $result = $this->agentDocumentService->findDocumentByClientAndType($intent['client_name'], $intent['document_name']);
+
+            // Enviar la respuesta
+            $this->whatsAppService->sendTextMessage($agent->agent_phone, $result['message']);
+
+            if ($result['status'] === 'success') {
+                foreach ($result['files'] as $file) {
+                    $this->whatsAppService->sendDocument($agent->agent_phone, $file['file_url'], $file['file_name']);
+                    // Pequeña pausa para evitar problemas con la API de WhatsApp
+                    sleep(1);
+                }
+            }
+
+        } else { // El intent es 'chat'
+            // Ejecutar la lógica existente para el chat de asesor fiscal
+
+            $chat->update(['action' => Chat::ACTION_IA_CONVERSATION]);
+
+            $this->chatStateService->handleIaConversationState($chat, $payload);
+            // $fiscalResponse = $this->geminiService->chatWithIA($message);
+            // $this->whatsAppService->sendTextMessage($agent->agent_phone, $fiscalResponse);
+        }
     }
 }

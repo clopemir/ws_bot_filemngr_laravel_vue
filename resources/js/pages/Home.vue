@@ -1,6 +1,6 @@
 <script setup>
 import { Head, Link } from '@inertiajs/vue3';
-import { driver } from "driver.js"
+//import { driver } from "driver.js"
 import "driver.js/dist/driver.css";
 
 
