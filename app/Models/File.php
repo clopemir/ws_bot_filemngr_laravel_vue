@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Models\Client;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class File extends Model
@@ -28,8 +29,30 @@ class File extends Model
         return $this->belongsTo(Folder::class);
     }
 
-    public function getUrl() {
-       return Storage::disk('public')->url($this->file_path);
+    /**
+     * Disco donde vive el archivo. Los archivos nuevos se guardan en el disco privado ('local');
+     * los antiguos pueden seguir en 'public' hasta ejecutar `php artisan files:make-private`.
+     */
+    public function storageDisk(): ?string {
+        foreach (['local', 'public'] as $disk) {
+            if (Storage::disk($disk)->exists($this->file_path)) {
+                return $disk;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Enlace temporal y firmado para que WhatsApp descargue el archivo.
+     * Caduca a los pocos minutos y no puede alterarse sin invalidar la firma.
+     */
+    public function temporaryDownloadUrl(): string {
+        return URL::temporarySignedRoute(
+            'whatsapp.files.download',
+            now()->addMinutes((int) config('whatsapp_bot.security.download_link_ttl_minutes', 10)),
+            ['file' => $this->id]
+        );
     }
 
 }

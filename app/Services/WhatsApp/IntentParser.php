@@ -2,48 +2,48 @@
 
 namespace App\Services\WhatsApp;
 
+use App\Models\Chat;
 use Illuminate\Support\Str;
 
 class IntentParser
 {
     /**
      * Parsea el mensaje/ID del usuario para determinar su intención.
-     * @return object
+     *
+     * Los IDs de botones y listas SOLO se reconocen cuando el mensaje es de tipo
+     * 'interactive'. Así nadie puede "inventar" una opción escribiéndola como texto.
      */
-    public static function parse(string $userMessage): object
+    public static function parse(string $userMessage, string $messageType = 'text'): object
     {
-        $userMessageLower = Str::lower($userMessage);
+        if ($messageType === 'interactive') {
+            return self::parseInteractive($userMessage);
+        }
+
+        $userMessageLower = Str::lower(Str::squish($userMessage));
 
         // Comandos globales
-        if (in_array($userMessageLower, ['cancelar', 'menu', 'menú', 'reset'])) {
+        if (in_array($userMessageLower, ['cancelar', 'menu', 'menú', 'reset', 'salir'])) {
             return self::createIntent('reset');
-        } else if (Str::contains($userMessageLower, ['gracias', 'adiós', 'adios', 'hasta luego', 'bye', 'nada más', 'es todo', 'no necesito nada más', 'no necesito nada'])) {
+        }
+        if (Str::contains($userMessageLower, ['gracias', 'adiós', 'adios', 'hasta luego', 'bye', 'nada más', 'es todo', 'no necesito nada más', 'no necesito nada'])) {
             return self::createIntent('end_conversation');
         }
 
-        // Intenciones de botones simples
-        if ($userMessage === 'client') return self::createIntent('is_client');
-        if ($userMessage === 'no_client') return self::createIntent('is_not_client');
-        if ($userMessage === 'agent_chat') return self::createIntent('talk_to_agent');
-
-        // Intenciones complejas con datos (ej. 'ask_doc_cat_XAXX010101000')
-        if (Str::startsWith($userMessage, 'ask_doc_cat_')) {
-            return self::createIntent('ask_doc_categories', [
-                'rfc' => Str::after($userMessage, 'ask_doc_cat_')
-            ]);
-        }
-        if (Str::startsWith($userMessage, 'cho_doc_cat_')) {
-            $parts = explode('_', Str::after($userMessage, 'cho_doc_cat_'));
-            $rfc = array_pop($parts); // El RFC es siempre el último elemento
-            $category = implode('_', $parts); // La categoría puede contener guiones bajos
-            return self::createIntent('choose_doc_category', [
-                'category' => $category,
-                'rfc' => $rfc
-            ]);
-        }
-
-        // Si no coincide nada, es una intención de texto genérica
         return self::createIntent('text_input', ['text' => $userMessage]);
+    }
+
+    private static function parseInteractive(string $id): object
+    {
+        return match (true) {
+            $id === Chat::INTENT_CLIENT => self::createIntent('is_client'),
+            $id === Chat::INTENT_NO_CLIENT => self::createIntent('is_not_client'),
+            $id === Chat::INTENT_TALK_TO_AGENT => self::createIntent('talk_to_agent'),
+            $id === Chat::INTENT_ASK_DOC_CATEGORIES => self::createIntent('ask_doc_categories'),
+            Str::startsWith($id, Chat::INTENT_CHOOSE_DOC_CATEGORY_PREFIX) => self::createIntent('choose_doc_category', [
+                'option_id' => $id,
+            ]),
+            default => self::createIntent('unknown_option', ['id' => $id]),
+        };
     }
 
     private static function createIntent(string $name, array $data = []): object
@@ -51,7 +51,6 @@ class IntentParser
         return (object) [
             'name' => $name,
             'data' => $data,
-            'is' => fn(string $intentName) => $name === $intentName,
         ];
     }
 }

@@ -52,6 +52,15 @@ return [
 
     'channels' => [
 
+        // Bitácora de eventos de seguridad del bot (verificaciones, códigos, bloqueos).
+        'security' => [
+            'driver' => 'daily',
+            'path' => storage_path('logs/security.log'),
+            'level' => 'info',
+            'days' => env('LOG_SECURITY_DAYS', 90),
+            'replace_placeholders' => true,
+        ],
+
         'stack' => [
             'driver' => 'stack',
             'channels' => explode(',', env('LOG_STACK', 'single')),

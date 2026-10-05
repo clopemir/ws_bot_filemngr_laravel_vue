@@ -16,7 +16,8 @@ class PayloadParser
     {
         $value = $request->input('entry.0.changes.0.value');
         if (!isset($value['messages'][0]) || !isset($value['contacts'][0])) {
-            Log::warning('Payload de webhook inválido o vacío.', ['value' => $value]);
+            // Normalmente son notificaciones de estado (enviado/entregado/leído).
+            Log::debug('Webhook sin mensajes de usuario.', ['has_statuses' => isset($value['statuses'])]);
             return null;
         }
 
@@ -54,7 +55,9 @@ class PayloadParser
                 ?? null;
         }
         if ($type === 'text') {
-            return $messageData['text']['body'] ?? null;
+            $body = $messageData['text']['body'] ?? null;
+            // Limitar el tamaño evita abusos (contexto en BD y prompts a la IA).
+            return $body === null ? null : Str::limit($body, 1000, '');
         }
         // No soportamos otros tipos como 'image', 'audio', etc. por ahora.
         return null;

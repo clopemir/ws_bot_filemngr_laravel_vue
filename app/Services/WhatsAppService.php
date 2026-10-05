@@ -6,8 +6,9 @@ use Exception;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Http;
-use App\Http\Controllers\WhatsApp\WaController;
+use Illuminate\Http\Client\RequestException;
 use App\Exceptions\WhatsAppApiException;
+use App\Models\Chat;
 
 class WhatsAppService
 {
@@ -30,13 +31,13 @@ class WhatsAppService
         }
     }
 
-    private function maskSensitiveData(array $data): array
+    /**
+     * ID estable y opaco para una categoría de documentos (no expone datos del cliente).
+     */
+    public static function categoryOptionId(string $category): string
     {
-        // Implementa lógica para enmascarar datos sensibles si es necesario
-        // Por ejemplo, si envías tokens o información personal en el cuerpo.
-        return $data;
+        return Chat::INTENT_CHOOSE_DOC_CATEGORY_PREFIX . substr(hash('sha256', $category), 0, 16);
     }
-
 
     public function markMessageAsRead(string $messageId)
     {
@@ -83,8 +84,6 @@ class WhatsAppService
     public function sendInitialButtons(string $to, string $userName)
     {
 
-        $headerImageUrl = config('app.url') . '/images/bot.png';
-
         return $this->sendMessage($to, [
             "type" => "interactive",
             "interactive" => [
@@ -92,14 +91,13 @@ class WhatsAppService
                 "header" => [
                     "type" => "image",
                     'image' => ['link' => config('whatsapp_bot.welcome_image_url')]
-                    //"image" => ["link" => $headerImageUrl] // URL pública de la imagen
                 ],
                 'body' => ['text' => trans('whatsapp.welcome', ['name' => $userName])],
                 'footer' => ['text' => trans('whatsapp.welcome_footer')],
                 "action" => [
                     "buttons" => [
-                        ['type' => 'reply', 'reply' => ['id' => 'client', 'title' => trans('whatsapp.buttons.is_client')]],
-                        ['type' => 'reply', 'reply' => ['id' => 'no_client', 'title' => trans('whatsapp.buttons.is_not_client')]],
+                        ['type' => 'reply', 'reply' => ['id' => Chat::INTENT_CLIENT, 'title' => trans('whatsapp.buttons.is_client')]],
+                        ['type' => 'reply', 'reply' => ['id' => Chat::INTENT_NO_CLIENT, 'title' => trans('whatsapp.buttons.is_not_client')]],
                     ]
                 ]
             ]
@@ -110,7 +108,7 @@ class WhatsAppService
     /**
      * Envía la lista de opciones para un cliente verificado.
      */
-    public function sendClientOptions(string $to, string $userName, string $rfc)
+    public function sendClientOptions(string $to, string $userName)
     {
         return $this->sendMessage($to, [
             'type' => 'interactive',
@@ -125,8 +123,8 @@ class WhatsAppService
                         [
                             'title' => trans('whatsapp.client_options.main_services_title'),
                             'rows' => [
-                                ['id' => "ask_doc_cat_".$rfc, 'title' => 'Descargar Archivos', 'description' => 'Constancias, Opiniones, etc.'],
-                                ['id' => 'agent_chat', 'title' => 'Hablar con mi Agente', 'description' => 'Atención personalizada'],
+                                ['id' => Chat::INTENT_ASK_DOC_CATEGORIES, 'title' => 'Descargar Archivos', 'description' => 'Constancias, Opiniones, etc.'],
+                                ['id' => Chat::INTENT_TALK_TO_AGENT, 'title' => 'Hablar con mi Agente', 'description' => 'Atención personalizada'],
                             ],
                         ],
                     ],
@@ -137,10 +135,7 @@ class WhatsAppService
 
     public function sendNonClientOptions(string $to, string $userName)
     {
-         $data = [
-            "messaging_product" => "whatsapp",
-            "recipient_type"=> "individual",
-            "to" => $to,
+        return $this->sendMessage($to, [
             "type" => "interactive",
             "interactive" => [
                 "type" => "list",
@@ -154,14 +149,12 @@ class WhatsAppService
                             "title" => 'Servicios',
                             "rows" => [
                                 ["id" => "req_info", "title" => "Conócenos", "description" => "Detalles de lo que ofrecemos"],
-                                //["id" => "be_client", "title" => "Quiero ser Cliente", "description" => "Pasos y beneficios"]
                             ]
                         ]
                     ]
                 ]
             ]
-        ];
-        return $this->makeRequest("{$this->baseUrl}/messages", $data);
+        ]);
     }
 
     public function sendInfo(string $to, string $userName)
@@ -191,36 +184,25 @@ class WhatsAppService
     }
 
     /**
-     * Nuevo para categorias
-     * Envía una lista de categorías de documentos para que el usuario seleccione.
+     * Envía la lista de categorías de documentos del cliente verificado.
+     * Los IDs de cada opción son hashes opacos; el cliente se toma de la sesión, nunca del mensaje.
      */
-    public function sendDocumentCategoryOptions(string $to, string $userName, string $rfc, array $categories)
+    public function sendDocumentCategoryOptions(string $to, string $userName, array $categories)
     {
-        if (empty($categories)) {
-            $this->sendTextMessage($to, "No hay categorías de documentos disponibles para {$rfc} en este momento.");
-            return;
-        }
-
         $rows = [];
         foreach ($categories as $category) {
-            if (empty($category)) continue;
+            if (blank($category)) continue;
             $rows[] = [
-                // El ID es construido por el controlador y luego parseado por él mismo.
-                "id" => "cho_doc_cat_{$category}_{$rfc}",
-                "title" => Str::title(str_replace(['_', '-'], ' ', $category)), // Formatear nombre de categoría
-                "description" => "Descargar archivos de " . Str::lower($category)
+                'id' => self::categoryOptionId($category),
+                'title' => Str::limit(Str::title(str_replace(['_', '-'], ' ', $category)), 21), // Máx. 24 caracteres
+                'description' => Str::limit('Descargar archivos de ' . Str::lower($category), 69), // Máx. 72 caracteres
             ];
         }
 
-        if (empty($rows)) {
-            $this->sendTextMessage($to, "No se encontraron categorías válidas de documentos para mostrar para el RFC {$rfc}.");
-            return;
-        }
-        // Limitar número de filas por sección si es necesario (WhatsApp tiene límites)
-        if (count($rows) > 5) {
-            Log::warning("Demasiadas categorías ({count($rows)}) para RFC {$rfc}. Se mostrarán las primeras 5.");
-            $rows = array_slice($rows, 0, 5);
-             // Considerar enviar un mensaje adicional si hay más de 10 categorías
+        // WhatsApp permite hasta 10 filas por lista.
+        if (count($rows) > 10) {
+            Log::warning('Demasiadas categorías para una lista de WhatsApp; se mostrarán las primeras 10.', ['total' => count($rows)]);
+            $rows = array_slice($rows, 0, 10);
         }
 
         return $this->sendMessage($to, [
@@ -228,7 +210,7 @@ class WhatsAppService
             'interactive' => [
                 'type' => 'list',
                 'header' => ['type' => 'text', 'text' => trans('whatsapp.doc_categories.header')],
-                'body' => ['text' => trans('whatsapp.doc_categories.body', ['name' => $userName, 'rfc' => $rfc])],
+                'body' => ['text' => trans('whatsapp.doc_categories.body', ['name' => $userName])],
                 'footer' => ['text' => trans('whatsapp.doc_categories.footer')],
                 'action' => [
                     'button' => trans('whatsapp.buttons.view_categories'),
@@ -236,14 +218,32 @@ class WhatsAppService
                 ],
             ],
         ]);
+    }
 
+    /**
+     * Envía un código de verificación usando una plantilla de "Autenticación" aprobada en Meta.
+     * Las plantillas permiten escribir al titular aunque no haya conversado con el bot en las últimas 24 h.
+     */
+    public function sendAuthenticationCode(string $to, string $template, string $language, string $code)
+    {
+        return $this->sendMessage($to, [
+            'type' => 'template',
+            'template' => [
+                'name' => $template,
+                'language' => ['code' => $language],
+                'components' => [
+                    ['type' => 'body', 'parameters' => [['type' => 'text', 'text' => $code]]],
+                    ['type' => 'button', 'sub_type' => 'url', 'index' => '0', 'parameters' => [['type' => 'text', 'text' => $code]]],
+                ],
+            ],
+        ]);
     }
 
     public function sendDocument(string $to, string $documentUrl,  string $filename, ?string $caption = '')
     {
         // Validar que la URL sea HTTPS, WhatsApp lo requiere para documentos.
         if (!Str::startsWith($documentUrl, 'https://')) {
-            Log::error("URL de documento no es HTTPS: {$documentUrl}. No se puede enviar.");
+            Log::error('URL de documento no es HTTPS. No se puede enviar.');
             throw new WhatsAppApiException(trans('whatsapp.errors.unsafe_url'));
         }
 
@@ -286,7 +286,7 @@ class WhatsAppService
             Log::error("Error en la petición a la API de WhatsApp: {$e->getMessage()}", [
                 'endpoint' => $endpoint,
                 'exception_code' => $e->getCode(),
-                //'response_body' => $response->body() ?? 'N/A',
+                'response_body' => $e instanceof RequestException ? Str::limit($e->response->body(), 500) : 'N/A',
             ]);
             throw new WhatsAppApiException(
                 message: "Error al comunicarse con la API de WhatsApp: " . $e->getMessage(),

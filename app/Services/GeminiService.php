@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -49,8 +50,8 @@ class GeminiService
         }
 
         try {
-            $response = Http::retry(2, 100) // Reintentar 2 veces con 100ms de espera
-                ->post("{$this->apiUrl}?key={$this->apiKey}", $payload)
+            $response = $this->client()
+                ->post($this->apiUrl, $payload)
                 ->throw()
                 ->json();
 
@@ -78,8 +79,8 @@ class GeminiService
 
         try {
 
-            $response = Http::retry(2, 100)
-                ->post("{$this->apiUrl}?key={$this->apiKey}", [
+            $response = $this->client()
+                ->post($this->apiUrl, [
                     'contents' => [['role' => 'user', 'parts' => [['text' => $prompt]]]],
                     'generationConfig' => ['temperature' => 0.3, 'maxOutputTokens' => 150]
                 ])
@@ -92,7 +93,7 @@ class GeminiService
 
                 $jsonResponse = trim(str_replace(['```json', '```'], '', $responseText));
 
-            Log:info('Gemini response received.', ['response' => Str::limit($jsonResponse, 200)]);
+                Log::info('Gemini response received.', ['response' => Str::limit($jsonResponse, 200)]);
 
                 return json_decode($jsonResponse, true) ?: '';
 
@@ -101,9 +102,19 @@ class GeminiService
                 return '';
             }
         } catch (Exception $e) {
-            Log::error("Error processing message with Gemini: {$e->getMessage()}", ['message' => $message]);
+            Log::error('Error processing message with Gemini.', ['error' => Str::limit($e->getMessage(), 300)]);
             return '';
         }
+    }
+
+    /**
+     * Cliente HTTP con la API key en cabecera (no en la URL, para que no aparezca en logs ni excepciones).
+     */
+    private function client(): PendingRequest
+    {
+        return Http::retry(2, 100)
+            ->timeout(20)
+            ->withHeaders(['x-goog-api-key' => $this->apiKey]);
     }
 
     private function maskGeminiPayload(array $payload): array
