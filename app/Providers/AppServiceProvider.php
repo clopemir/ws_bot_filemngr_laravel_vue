@@ -2,8 +2,8 @@
 
 namespace App\Providers;
 
-use URL;
 use Inertia\Inertia;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
 use Opcodes\LogViewer\Facades\LogViewer;
 
@@ -31,12 +31,12 @@ class AppServiceProvider extends ServiceProvider
             },
         ]);
 
-        LogViewer::auth(function ($request) {
-            //return $request->user() && $request->user()->can('view logs');
-            return true; // For simplicity, we allow all authenticated users to view logs
-        });
+        // Los logs contienen datos de clientes: solo usuarios con sesión iniciada.
+        LogViewer::auth(fn ($request) => $request->user() !== null);
 
-        //forzar https
-        app('url')->forceScheme('https');
+        // Forzar https cuando la app está publicada con https (producción / ngrok).
+        if (str_starts_with((string) config('app.url'), 'https://')) {
+            URL::forceScheme('https');
+        }
     }
 }

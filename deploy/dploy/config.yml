@@ -1,0 +1,32 @@
+# Configuración de Dploy (CloudPanel) para el bot de WhatsApp.
+# En el servidor: ~/.dploy/config.yml del usuario fpcorporativo-bot
+# Uso:  dploy deploy main        Guía: DEPLOY.md
+
+project:
+  git_repository: 'https://github.com/clopemir/ws_bot_filemngr_laravel_vue.git'
+  deploy:
+    directory: '/home/fpcorporativo-bot/htdocs/ws_bot_filemngr_laravel_vue'
+
+    shared_directories:
+      - 'storage/logs'
+      - 'storage/app/public'   # Documentos antiguos (se vacía con files:make-private)
+      - 'storage/app/private'  # NUEVO: documentos de clientes. Sin esto se pierden en cada deploy.
+
+    before_commands: # Antes de cambiar el symlink "current"
+      - 'cd {release_directory} && composer install --no-dev --optimize-autoloader --no-interaction --no-progress'
+      - 'cd {release_directory} && npm ci --no-audit --no-fund && npm run build && rm -rf node_modules'
+      # Necesario: esta versión agrega columnas y tablas (verificación en dos factores).
+      - 'cd {release_directory} && php artisan migrate --force'
+      # Reemplaza config:cache + route:cache + view:cache (y cachea eventos).
+      - 'cd {release_directory} && php artisan optimize'
+      # Ya NO se ejecuta storage:link: los documentos no deben tener URL pública.
+      - 'find {release_directory} -type d -exec chmod 0770 {} \; && find {release_directory} -type f -exec chmod 660 {} \;'
+
+    after_commands: # Después de cambiar el symlink "current"
+      - 'sudo systemctl reload php8.4-fpm'
+      # Reinicia el worker para que tome el código nuevo.
+      - 'cd {release_directory} && php artisan queue:restart'
+      # Mover documentos al disco privado: ejecutarlo a mano (php artisan files:make-private) cuando
+      # confirmes que la nueva versión funciona. Mientras tanto la app lee de ambos discos y la
+      # versión anterior sigue sirviendo para un rollback. Después puede activarse aquí (es idempotente).
+      #- 'cd {release_directory} && php artisan files:make-priva

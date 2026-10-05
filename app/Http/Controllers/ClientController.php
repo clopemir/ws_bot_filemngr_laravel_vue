@@ -7,6 +7,7 @@ use App\Models\Agent;
 use App\Models\Client;
 use App\Models\Folder;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 
@@ -46,6 +47,8 @@ class ClientController extends Controller
 
     public function store(Request $request) {
 
+        $request->merge(['client_rfc' => strtolower(trim((string) $request->input('client_rfc')))]);
+
         $validated = $request->validate([
             'agent_id' => 'required|exists:agents,id',
             'client_name' => 'required|string|max:225',
@@ -80,10 +83,10 @@ class ClientController extends Controller
 
             $basePath = 'clientes/'.$validated['client_rfc'];
 
-            Storage::disk('public')->makeDirectory($basePath);
+            Storage::disk('local')->makeDirectory($basePath);
 
             foreach ($defaultSubfolders as $subfolder) {
-                Storage::disk('public')->makeDirectory("{$basePath}/{$subfolder}");
+                Storage::disk('local')->makeDirectory("{$basePath}/{$subfolder}");
             }
 
 
@@ -106,16 +109,19 @@ class ClientController extends Controller
 
     public function update(Request $request, Client $client) {
 
+        $request->merge(['client_rfc' => strtolower(trim((string) $request->input('client_rfc')))]);
+
         $validated = $request->validate([
             'agent_id' => 'required|exists:agents,id',
             'client_name' => 'required|string|max:225',
             'client_lname' => 'string|max:225',
-            'client_rfc' => 'required|string|max:13|regex:/^([a-zA-ZñÑ&]{3,4})\d{6}(?:[a-zA-Z\d]{3})?$/',
+            'client_rfc' => ['required', 'string', 'max:13', 'regex:/^([a-zA-ZñÑ&]{3,4})\d{6}(?:[a-zA-Z\d]{3})?$/', Rule::unique('clients', 'client_rfc')->ignore($client->id)],
             'client_phone' => 'required|string|max:10',
             'client_mail' => 'email|max:100',
             'client_status' => 'boolean|required'
+        ], [
+            'client_rfc.unique' => 'El RFC ya está registrado en el sistema.',
         ]);
-        $validated['client_rfc'] = strtolower($validated['client_rfc']);
 
         $client->update($validated);
 

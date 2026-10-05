@@ -2,51 +2,56 @@
 
 namespace App\Services;
 
-use App\Models\File;
 use App\Models\Agent;
 use App\Models\Client;
+use App\Models\File;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Storage;
-
+use Illuminate\Support\Str;
 
 class AgentDocumentService
 {
-    public function findDocumentByClientAndType(string $clientName, string $docName)
+    /**
+     * Busca documentos de un cliente por nombre y tipo, SOLO entre los clientes asignados al agente.
+     *
+     * @return array{status: string, message: string, files?: \Illuminate\Support\Collection<int, File>}
+     */
+    public function findDocumentByClientAndType(Agent $agent, string $clientName, string $docName): array
     {
-        $client = Client::whereRaw('LOWER(client_name) LIKE ?', ['%' . strtolower($clientName) . '%'])
-                        ->first();
+        // Un agente tiene pocos clientes: se compara el nombre completo en PHP (igual en MySQL y SQLite).
+        $needle = Str::lower(Str::squish($clientName));
+        $client = $agent->clients()->get()
+            ->first(fn (Client $client) => Str::contains(Str::lower("{$client->client_name} {$client->client_lname}"), $needle));
 
-
-        if(!$client) {
-            return ['status' => 'error', 'message' => 'No hay coincidencias con este nombre de cliente: ' . $clientName];
+        if (!$client) {
+            return ['status' => 'error', 'message' => 'No encontré entre tus clientes asignados a: ' . $clientName];
         }
 
         $documents = File::where('client_rfc', $client->client_rfc)
-                        ->where('category', 'LIKE', $docName . '%')
-                        ->limit(5)
-                        ->get();
+            ->where('category', 'LIKE', $this->escapeLike($docName) . '%')
+            ->latest()
+            ->limit(5)
+            ->get();
 
-        // loggear si encontro documentos
-        Log::info('Búsqueda de documentos para el cliente: ' . $client->name . ' y tipo: ' . $docName . '. Documentos encontrados: ' . $documents->count());
+        Log::channel('security')->info('Búsqueda de documentos por agente.', [
+            'agent_id' => $agent->id,
+            'client_id' => $client->id,
+            'category' => $docName,
+            'count' => $documents->count(),
+        ]);
 
-        if($documents->isEmpty()) {
+        if ($documents->isEmpty()) {
             return ['status' => 'error', 'message' => 'No se encontraron documentos para el cliente: ' . $client->client_name . ' ' . $client->client_lname];
         }
-
-        $files = $documents->map(function($doc) {
-            return [
-                'file_name' => $doc->original_file_name,
-                'file_url' => Storage::disk('public')->url($doc->file_path)
-            ];
-        })->all();
-
-        //loguear los detalles de cada archivo
-        Log::info('Documentos encontrados:', $files);
 
         return [
             'status' => 'success',
             'message' => 'Documentos encontrados para el cliente: ' . $client->client_name . ' ' . $client->client_lname,
-            'files' => $files
+            'files' => $documents,
         ];
+    }
+
+    private function escapeLike(string $value): string
+    {
+        return addcslashes($value, '\\%_');
     }
 }

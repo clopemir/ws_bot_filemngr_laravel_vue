@@ -2,23 +2,24 @@
 
 namespace App\Http\Controllers\WhatsApp;
 
-use Exception;
-use Carbon\Carbon;
-use App\Models\Chat;
-use App\Models\Agent;
-use App\Models\Client;
-use App\Jobs\NotifyAgentJob;
-use Illuminate\Http\Request;
-use App\Services\WhatsAppService;
-use App\Services\ChatStateService;
-use Illuminate\Support\Facades\Log;
-use App\Http\Controllers\Controller;
-use App\Services\WhatsApp\IntentParser;
 use App\Exceptions\WhatsAppApiException;
-use App\Services\WhatsApp\PayloadParser;
+use App\Http\Controllers\Controller;
 use App\Http\Requests\WhatsAppWebhookRequest;
+use App\Models\Agent;
+use App\Models\Chat;
 use App\Services\AgentDocumentService;
+use App\Services\ChatStateService;
 use App\Services\GeminiService;
+use App\Services\WhatsApp\IntentParser;
+use App\Services\WhatsApp\PayloadParser;
+use App\Services\WhatsAppService;
+use App\Support\Mask;
+use App\Support\PhoneNumber;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
 class WaController extends Controller
 {
@@ -28,112 +29,87 @@ class WaController extends Controller
         private ChatStateService $chatStateService,
         private GeminiService $geminiService
     ) {
-        $this->whatsAppService = $whatsAppService;
-        $this->chatStateService = $chatStateService;
-        $this->agentDocumentService = $agentDocumentService;
-        $this->geminiService = $geminiService;
     }
 
     /**
-     * Verifica el webhook de WhatsApp.
-     * La validación del token ahora está en un Form Request.
+     * Verifica el webhook de WhatsApp (handshake inicial de Meta).
      */
     public function verifyWebhook(Request $request)
     {
-        $verifyToken = config('services.whatsapp.verify_token');
-        if ($request->hub_mode === 'subscribe' && $request->hub_verify_token === $verifyToken) {
+        $verifyToken = (string) config('services.whatsapp.verify_token');
+
+        if ($verifyToken !== ''
+            && $request->query('hub_mode') === 'subscribe'
+            && hash_equals($verifyToken, (string) $request->query('hub_verify_token'))) {
             Log::info('WhatsApp Webhook Verified.');
-            return response($request->hub_challenge, 200);
+            return response((string) $request->query('hub_challenge'), 200);
         }
-        Log::warning('WhatsApp Webhook verification failed.', $request->all());
+
+        Log::warning('WhatsApp Webhook verification failed.', ['ip' => $request->ip()]);
         return response('Forbidden', 403);
     }
 
     /**
      * Recibe y procesa los mensajes entrantes de WhatsApp.
-     * Usa un Form Request para la validación inicial del payload.
+     * La firma de Meta ya fue validada por el middleware VerifyWhatsAppSignature.
      */
-    public function receiveMessage(WhatsAppWebhookRequest $request)
+    public function receiveMessage(WhatsAppWebhookRequest $request): JsonResponse
     {
+        $payload = null;
+
         try {
             $payload = PayloadParser::parse($request);
             if (!$payload) {
                 return response()->json(['status' => 'ok', 'message' => 'Unsupported message type']);
             }
-            // Marcar mensaje como leído inmediatamente.
+
+            // Meta reintenta los webhooks que tardan o fallan: cada mensaje se procesa una sola vez.
+            if (!Cache::add("wa-message:{$payload->messageId}", true, now()->addDay())) {
+                return response()->json(['status' => 'ok', 'message' => 'Duplicate']);
+            }
+
             $this->whatsAppService->markMessageAsRead($payload->messageId);
 
-            $intent = IntentParser::parse($payload->userMessage);
-
+            $intent = IntentParser::parse($payload->userMessage, $payload->messageType);
             $chat = $this->findOrCreateChat($payload);
+            $agent = $this->findAgent($payload->userPhone);
 
-            $isAgent = Agent::where('agent_phone', $payload->userPhone)->exists();
-
-            $agent = Agent::where('agent_phone', $payload->userPhone)->first();
-
-            if($isAgent){
-                try {
-
-                    $this->handleAgentMessage($agent, $payload->userMessage, $chat, $payload);
-
-                    $chat->addMessageToContext($payload->userMessage, 'user');
-
-                    return response()->json(['status' => 'ok', 'action' => $chat->action]);
-                } catch (Exception $e) {
-                    Log::error("Error al manejar el mensaje del agente: {$e->getMessage()}", [
-                        'wa_id' => $payload->waId ?? 'N/A',
-                        'trace' => $e->getTraceAsString(),
-                    ]);
-                }
-
-
+            if ($agent) {
+                $this->handleAgentMessage($agent, $payload->userMessage, $chat, $payload);
+                $chat->addMessageToContext($payload->userMessage, 'user');
+                return response()->json(['status' => 'ok', 'action' => $chat->action]);
             }
-            if ($chat->wasRecentlyCreated && !$isAgent) {
 
+            if ($chat->wasRecentlyCreated) {
                 $this->whatsAppService->sendInitialButtons($chat->user_phone, $chat->user_name);
                 return response()->json(['status' => 'ok', 'action' => $chat->action]);
             }
 
-            if (!$chat) {
-                throw new \RuntimeException("No se pudo crear o encontrar el chat para el usuario.");
-            }
+            // No guardamos en el historial datos de verificación (RFC o códigos).
+            $isSensitive = in_array($chat->action, [Chat::ACTION_REQUEST_RFC, Chat::ACTION_REQUEST_OTP], true);
+            $chat->addMessageToContext($isSensitive ? '[dato de verificación]' : $payload->userMessage, 'user');
 
-            $chat->addMessageToContext($payload->userMessage, 'user');
-
-
-            // Si el usuario quiere cancelar, reseteamos el chat.
-            if ($intent->name === 'reset') {
+            if (in_array($intent->name, ['reset', 'end_conversation'], true)) {
                 $this->chatStateService->resetChat($chat);
-                return response()->json(['status' => 'ok', 'action' => 'chat_reset']);
+                return response()->json(['status' => 'ok', 'action' => $intent->name]);
             }
 
-            if ($intent->name === 'end_conversation') {
-                // si el usuario se despide, simplemente terminamos la conversación. enviando un mensaje y reseteando el estado base
-                $this->chatStateService->resetChat($chat);
-                return response()->json(['status' => 'ok', 'action' => 'conversation_ended']);
-            }
-
-            // Delegamos la lógica de qué hacer a un servicio especializado.
             $this->chatStateService->handleState($chat, $payload, $intent);
 
-            return $chat;
-
         } catch (WhatsAppApiException $e) {
-            // Si falla una llamada a la API de WhatsApp (ej. enviar un mensaje), lo logueamos.
-            // No se puede hacer mucho más que loguear, ya que ya estamos en un proceso de webhook.
+            // Si falla una llamada a la API de WhatsApp (ej. enviar un mensaje), lo registramos.
             Log::error("WhatsApp API Exception: {$e->getMessage()}", [
-                'wa_id' => $payload->waId ?? 'N/A',
+                'phone' => Mask::phone($payload->userPhone ?? null),
             ]);
-        } catch (Exception $e) {
-            // Captura cualquier otra excepción inesperada.
+        } catch (Throwable $e) {
             Log::critical("Error fatal al procesar el mensaje de WhatsApp: {$e->getMessage()}", [
-                'wa_id' => $payload->waId ?? 'N/A',
+                'phone' => Mask::phone($payload->userPhone ?? null),
                 'trace' => $e->getTraceAsString(),
             ]);
-        } finally {
-            // Siempre responder 200 OK a WhatsApp para evitar que reenvíe el webhook.
-            return response()->json(['status' => 'ok']);
         }
+
+        // Siempre responder 200 OK a WhatsApp para evitar que reenvíe el webhook.
+        return response()->json(['status' => 'ok']);
     }
 
     /**
@@ -141,13 +117,12 @@ class WaController extends Controller
      */
     private function findOrCreateChat(object $payload): Chat
     {
-
-        $chat = Chat::firstOrCreate(
+        return Chat::firstOrCreate(
             ['wa_id' => $payload->waId],
             [
                 'user_name' => $payload->userName,
                 'user_phone' => $payload->userPhone,
-                'client_rfc' => '',
+                'client_rfc' => null,
                 'client_id' => null,
                 'context' => [['role' => 'user', 'content' => $payload->userMessage, 'timestamp' => now()->toIso8601String()]],
                 'user_intention' => '',
@@ -155,20 +130,25 @@ class WaController extends Controller
                 'is_client' => false
             ]
         );
-
-
-
-        return $chat;
     }
 
-     // Nueva función pata tratar el mensaje proveniente de un agente
-
-    private function handleAgentMessage($agent, $message, $chat, $payload)
+    private function findAgent(string $phone): ?Agent
     {
+        $lastDigits = substr(PhoneNumber::digits($phone), -10);
 
+        return Agent::where('agent_phone', 'like', "%{$lastDigits}")
+            ->get()
+            ->first(fn (Agent $agent) => PhoneNumber::matches($agent->agent_phone, $phone));
+    }
+
+    /**
+     * Mensajes de agentes: búsqueda de documentos en lenguaje natural o conversación con la IA.
+     */
+    private function handleAgentMessage(Agent $agent, string $message, Chat $chat, object $payload): void
+    {
         $intent = $this->geminiService->processMessage($message);
 
-        if(!$intent || !isset($intent['intent'])) {
+        if (!$intent || !isset($intent['intent'])) {
             $this->whatsAppService->sendTextMessage($agent->agent_phone, "No entendí tu mensaje. ¿Podrías reformularlo?");
             return;
         }
@@ -180,28 +160,23 @@ class WaController extends Controller
                 return;
             }
 
-            // Llamar al servicio que busca los documentos
-            $result = $this->agentDocumentService->findDocumentByClientAndType($intent['client_name'], $intent['document_name']);
+            // Solo busca entre los clientes asignados a este agente.
+            $result = $this->agentDocumentService->findDocumentByClientAndType($agent, $intent['client_name'], $intent['document_name']);
 
-            // Enviar la respuesta
             $this->whatsAppService->sendTextMessage($agent->agent_phone, $result['message']);
 
             if ($result['status'] === 'success') {
                 foreach ($result['files'] as $file) {
-                    $this->whatsAppService->sendDocument($agent->agent_phone, $file['file_url'], $file['file_name']);
+                    $this->whatsAppService->sendDocument($agent->agent_phone, $file->temporaryDownloadUrl(), $file->original_file_name);
                     // Pequeña pausa para evitar problemas con la API de WhatsApp
                     sleep(1);
                 }
             }
 
         } else { // El intent es 'chat'
-            // Ejecutar la lógica existente para el chat de asesor fiscal
-
             $chat->update(['action' => Chat::ACTION_IA_CONVERSATION]);
 
             $this->chatStateService->handleIaConversationState($chat, $payload);
-            // $fiscalResponse = $this->geminiService->chatWithIA($message);
-            // $this->whatsAppService->sendTextMessage($agent->agent_phone, $fiscalResponse);
         }
     }
 }

@@ -81,7 +81,7 @@ class FolderController extends Controller
 
             $path = $this->getFullPath($newFolder);
 
-            Storage::disk('public')->makeDirectory($path);
+            Storage::disk('local')->makeDirectory($path);
 
             return redirect()->back()->with('success', 'La carpeta se ha creado correctamente');
 

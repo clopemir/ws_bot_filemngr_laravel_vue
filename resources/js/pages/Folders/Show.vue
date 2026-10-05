@@ -73,7 +73,7 @@ function goToPage(url = null) {
                                 <tbody class="divide-y divide-gray-100 bg-white dark:divide-gray-800 dark:bg-gray-900">
                                     <tr v-for="file in folder.files" :key="file.id">
                                         <td class="px-4 py-2 text-sm text-gray-800 dark:text-gray-200 text-center">
-                                            <a :href="`/storage/${file.file_path}`" class="text-blue-600 hover:underline">{{ file.original_file_name }}</a>
+                                            <a :href="`/files/${file.id}`" class="text-blue-600 hover:underline">{{ file.original_file_name }}</a>
                                         </td>
                                         <td class="px-4 py-2 text-sm text-gray-800 dark:text-gray-200 text-center">
                                             <Button size="sm" class="bg-red-500 text-white hover:bg-red-700" @click="router.delete(`/files/${file.id}`)">
