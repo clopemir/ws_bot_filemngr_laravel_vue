@@ -148,8 +148,12 @@ class ChatStateService
         // Número NO registrado: factor 2. La respuesta es idéntica exista o no el RFC,
         // para que nadie pueda usar el bot para averiguar quién es cliente.
         if ($client) {
-            $this->verificationService->issueCode($chat, $client);
-            NotifySecurityEventJob::dispatchAfterResponse($client, NotifySecurityEventJob::UNREGISTERED_PHONE, $phone);
+            $issued = $this->verificationService->issueCode($chat, $client);
+            NotifySecurityEventJob::dispatchAfterResponse(
+                $client,
+                $issued ? NotifySecurityEventJob::UNREGISTERED_PHONE : NotifySecurityEventJob::CODE_NOT_DELIVERED,
+                $phone
+            );
         }
 
         $chat->update(['action' => Chat::ACTION_REQUEST_OTP]);

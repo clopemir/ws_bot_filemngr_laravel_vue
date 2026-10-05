@@ -79,6 +79,21 @@ class DocumentDeliveryTest extends WhatsAppTestCase
         $this->get($link)->assertForbidden();
     }
 
+    public function test_download_links_survive_a_proxy_that_reports_http(): void
+    {
+        $link = File::firstWhere('original_file_name', 'constancia.pdf')->temporaryDownloadUrl();
+
+        $this->assertStringStartsWith('https://bot.test/wa/files/', $link);
+        $this->get(str_replace('https://bot.test', 'http://127.0.0.1', $link))->assertOk();
+    }
+
+    public function test_private_files_have_no_storage_route(): void
+    {
+        $file = File::first();
+
+        $this->get('/storage/' . $file->file_path)->assertNotFound();
+    }
+
     public function test_typed_option_ids_are_ignored(): void
     {
         $this->verifiedChat();

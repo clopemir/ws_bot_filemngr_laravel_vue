@@ -6,6 +6,7 @@ use App\Models\Chat;
 use App\Models\VerificationCode;
 use App\Notifications\ClientAccessCodeNotification;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Notification;
 
 class ClientVerificationFlowTest extends WhatsAppTestCase
@@ -40,14 +41,21 @@ class ClientVerificationFlowTest extends WhatsAppTestCase
         $this->assertDatabaseCount('chats', 1);
     }
 
-    public function test_status_notifications_are_acknowledged(): void
+    public function test_status_notifications_are_acknowledged_and_failures_logged(): void
     {
-        $body = json_encode(['entry' => [['changes' => [['value' => ['statuses' => [['status' => 'read']]]]]]]]);
+        Log::spy();
+        $body = json_encode(['entry' => [['changes' => [['value' => ['statuses' => [
+            ['id' => 'wamid.ok', 'status' => 'read'],
+            ['id' => 'wamid.doc', 'status' => 'failed', 'errors' => [['code' => 131053, 'title' => 'Media upload error']]],
+        ]]]]]]]);
 
         $this->call('POST', '/webhook', [], [], [], [
             'CONTENT_TYPE' => 'application/json',
             'HTTP_X_HUB_SIGNATURE_256' => 'sha256=' . hash_hmac('sha256', $body, self::APP_SECRET),
         ], $body)->assertOk();
+
+        Log::shouldHaveReceived('warning')->once()
+            ->with('WhatsApp no pudo entregar un mensaje.', \Mockery::on(fn ($ctx) => $ctx['message_id'] === 'wamid.doc' && $ctx['errors'][0]['code'] === 131053));
     }
 
     public function test_registered_phone_with_rfc_is_verified_by_phone(): void
@@ -108,6 +116,32 @@ class ClientVerificationFlowTest extends WhatsAppTestCase
         Notification::assertNothingSent();
         $this->assertSame(0, VerificationCode::count());
         $this->assertNull(Chat::firstWhere('wa_id', self::STRANGER_WA)->client_id);
+        $this->assertStringContainsString('No se pudo enviar el código', $this->lastTextTo(self::AGENT_TO));
+    }
+
+    public function test_access_stays_blocked_when_the_mail_server_is_down(): void
+    {
+        // Reproduce la prueba en producción: el SMTP rechaza la conexión.
+        \Illuminate\Support\Facades\Notification::swap(new class {
+            public function __call($method, $args) { throw new \RuntimeException('Connection refused'); }
+        });
+        $this->chatFor(self::STRANGER_WA, Chat::ACTION_REQUEST_RFC);
+
+        $this->text('PEJJ800101AB1', self::STRANGER_WA);
+        foreach (['000000', '123456', '999999'] as $guess) {
+            $this->text($guess, self::STRANGER_WA);
+            $this->tap(Chat::INTENT_ASK_DOC_CATEGORIES, self::STRANGER_WA);
+            $this->tap('ask_doc_cat_pejj800101ab1', self::STRANGER_WA); // Botón del menú antiguo
+            $this->tap(\App\Services\WhatsAppService::categoryOptionId('constancias'), self::STRANGER_WA);
+            $this->text('PEJJ800101AB1', self::STRANGER_WA);
+        }
+
+        $chat = Chat::firstWhere('wa_id', self::STRANGER_WA);
+        $this->assertNull($chat->client_id);
+        $this->assertNull($chat->verified_at);
+        $this->assertSame(0, VerificationCode::count());
+        $this->assertEmpty(array_filter($this->sentTo(self::STRANGER_TO), fn ($m) => in_array($m['type'], ['document'], true)
+            || (($m['interactive']['type'] ?? null) === 'list')));
     }
 
     public function test_unknown_rfc_from_unregistered_phone_gets_the_same_answer(): void

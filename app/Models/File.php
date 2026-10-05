@@ -48,11 +48,16 @@ class File extends Model
      * Caduca a los pocos minutos y no puede alterarse sin invalidar la firma.
      */
     public function temporaryDownloadUrl(): string {
-        return URL::temporarySignedRoute(
+        // Firma relativa: valida ruta + parámetros, no el esquema ni el host. Así un proxy que
+        // entregue la petición como http:// (o con otro host interno) no invalida el enlace.
+        $path = URL::temporarySignedRoute(
             'whatsapp.files.download',
             now()->addMinutes((int) config('whatsapp_bot.security.download_link_ttl_minutes', 10)),
-            ['file' => $this->id]
+            ['file' => $this->id],
+            absolute: false
         );
+
+        return rtrim((string) config('app.url'), '/') . $path;
     }
 
 }

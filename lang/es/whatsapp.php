@@ -41,6 +41,7 @@ return [
 
     'security_alerts' => [
         'unregistered_phone' => "⚠️ *Alerta de seguridad*\n\nHola *:agent_name*. Se solicitó acceso a los documentos de *:client_name* desde un número NO registrado: wa.me/:phone\n\nSe envió un código de verificación a los medios registrados del cliente.\n\nHora: :timestamp",
+        'code_not_delivered' => "⚠️ *Alerta de seguridad*\n\nHola *:agent_name*. Se solicitó acceso a los documentos de *:client_name* desde un número NO registrado: wa.me/:phone\n\n*No se pudo enviar el código de verificación* (correo no disponible, cliente sin medios de contacto o límite diario alcanzado), así que el acceso quedó bloqueado. Si la solicitud es legítima, contacta al cliente.\n\nHora: :timestamp",
         'otp_verified' => "ℹ️ El número wa.me/:phone accedió a los documentos de *:client_name* con un código de verificación.\n\nSi el cliente usará este número de forma habitual, actualiza su teléfono en el panel.\n\nHora: :timestamp",
         'otp_locked' => "🚫 *Alerta de seguridad*\n\nEl número wa.me/:phone agotó los intentos de código para *:client_name*. Considera contactar al cliente.\n\nHora: :timestamp",
     ],
