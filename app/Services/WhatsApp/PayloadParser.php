@@ -16,8 +16,8 @@ class PayloadParser
     {
         $value = $request->input('entry.0.changes.0.value');
         if (!isset($value['messages'][0]) || !isset($value['contacts'][0])) {
-            // Normalmente son notificaciones de estado (enviado/entregado/leído).
-            Log::debug('Webhook sin mensajes de usuario.', ['has_statuses' => isset($value['statuses'])]);
+            // Notificaciones de estado (enviado/entregado/leído/fallido).
+            self::logFailedStatuses($value['statuses'] ?? []);
             return null;
         }
 
@@ -45,6 +45,28 @@ class PayloadParser
             'messageType' => $messageType,
             'userMessage' => $userMessage,
         ];
+    }
+
+    /**
+     * Meta avisa por webhook cuando un mensaje aceptado no se pudo entregar
+     * (p. ej. no pudo descargar un documento). Sin esto el fallo sería invisible.
+     */
+    private static function logFailedStatuses(array $statuses): void
+    {
+        foreach ($statuses as $status) {
+            if (($status['status'] ?? null) !== 'failed') {
+                continue;
+            }
+
+            Log::warning('WhatsApp no pudo entregar un mensaje.', [
+                'message_id' => $status['id'] ?? null,
+                'errors' => collect($status['errors'] ?? [])->map(fn ($e) => [
+                    'code' => $e['code'] ?? null,
+                    'title' => $e['title'] ?? null,
+                    'details' => $e['error_data']['details'] ?? null,
+                ])->all(),
+            ]);
+        }
     }
 
     private static function extractUserMessage(array $messageData, string $type): ?string

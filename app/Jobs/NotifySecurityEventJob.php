@@ -20,6 +20,8 @@ class NotifySecurityEventJob implements ShouldQueue
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public const UNREGISTERED_PHONE = 'unregistered_phone';
+    // Número no registrado, pero el código no pudo enviarse (correo caído, sin canales o límite diario).
+    public const CODE_NOT_DELIVERED = 'code_not_delivered';
     public const OTP_VERIFIED = 'otp_verified';
     public const OTP_LOCKED = 'otp_locked';
 

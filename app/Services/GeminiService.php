@@ -44,10 +44,7 @@ class GeminiService
             return null;
         }
 
-        $payload = ['contents' => $contents];
-        if ($generationConfig) {
-            $payload['generationConfig'] = $generationConfig;
-        }
+        $payload = ['contents' => $contents, 'generationConfig' => $this->withThinking($generationConfig ?? [])];
 
         try {
             $response = $this->client()
@@ -55,11 +52,12 @@ class GeminiService
                 ->throw()
                 ->json();
 
-            if (empty($response['candidates'][0]['content']['parts'][0]['text'])) {
-                Log::warning('Gemini response missing expected text part.', ['response' => $response]);
+            $text = $this->extractText($response);
+            if ($text === '') {
+                Log::warning('Gemini response missing expected text part.', ['finish_reason' => $response['candidates'][0]['finishReason'] ?? 'N/A']);
                 return null;
             }
-            return Str::trim($response['candidates'][0]['content']['parts'][0]['text']);
+            return $text;
 
         } catch (Exception $e) {
             Log::error("Error in Gemini API request: {$e->getMessage()}", [
@@ -82,15 +80,17 @@ class GeminiService
             $response = $this->client()
                 ->post($this->apiUrl, [
                     'contents' => [['role' => 'user', 'parts' => [['text' => $prompt]]]],
-                    'generationConfig' => ['temperature' => 0.3, 'maxOutputTokens' => 150]
+                    'generationConfig' => $this->withThinking([
+                        'temperature' => 0.3,
+                        'maxOutputTokens' => 1024,
+                        'responseMimeType' => 'application/json',
+                    ]),
                 ])
                 ->throw();
 
+            $responseText = $this->extractText($response->json() ?? []);
 
-
-            if ($response->successful() && !empty($response->json('candidates.0.content.parts.0.text'))) {
-                $responseText = $response->json('candidates.0.content.parts.0.text', '');
-
+            if ($responseText !== '') {
                 $jsonResponse = trim(str_replace(['```json', '```'], '', $responseText));
 
                 Log::info('Gemini response received.', ['response' => Str::limit($jsonResponse, 200)]);
@@ -98,13 +98,40 @@ class GeminiService
                 return json_decode($jsonResponse, true) ?: '';
 
             } else {
-                Log::info('Gemini response was empty or invalid.', ['message' => $message]);
+                Log::warning('Gemini response was empty or invalid.', ['finish_reason' => $response->json('candidates.0.finishReason', 'N/A')]);
                 return '';
             }
         } catch (Exception $e) {
             Log::error('Error processing message with Gemini.', ['error' => Str::limit($e->getMessage(), 300)]);
             return '';
         }
+    }
+
+    /**
+     * Los modelos Gemini 3.x razonan antes de responder y esos tokens cuentan contra maxOutputTokens.
+     * Para clasificar y conversar basta con razonamiento bajo (más rápido, más barato y sin respuestas vacías).
+     */
+    private function withThinking(array $generationConfig): array
+    {
+        if ($level = config('services.gemini.thinking_level')) {
+            $generationConfig['thinkingConfig'] = ['thinkingLevel' => $level];
+        }
+
+        return $generationConfig;
+    }
+
+    /**
+     * Une las partes de texto de la respuesta, ignorando las partes de razonamiento.
+     */
+    private function extractText(array $response): string
+    {
+        $parts = $response['candidates'][0]['content']['parts'] ?? [];
+
+        return Str::trim(collect($parts)
+            ->reject(fn ($part) => !empty($part['thought']))
+            ->pluck('text')
+            ->filter()
+            ->implode(''));
     }
 
     /**
@@ -207,7 +234,7 @@ class GeminiService
         //$userMessage = str_replace(["\n", "\r"], ' ', $userMessage);
         $contents[] = ['role' => 'user', 'parts' => [['text' => $userMessage]]];
 
-        $botResponse = $this->makeRequest($contents, ['temperature' => 0.7, 'maxOutputTokens' => 500]);
+        $botResponse = $this->makeRequest($contents, ['temperature' => 0.7, 'maxOutputTokens' => 2048]);
 
         if (!$botResponse) {
             return "Lo siento, {$userName}, tuve un problema para procesar tu consulta en este momento. Por favor, intenta de nuevo más tarde.";
