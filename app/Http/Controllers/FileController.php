@@ -28,7 +28,8 @@ class FileController extends Controller
                 foreach ($request->file('files') as $uploadedFile) {
 
                     $folderStoragePath = $folder->getStoragePath();
-                    $storedFilePath = $uploadedFile->store($folderStoragePath, 'public');
+                    // Disco privado: los archivos solo se sirven con sesión iniciada o enlace firmado.
+                    $storedFilePath = $uploadedFile->store($folderStoragePath, 'local');
 
                     $originalFileName = $uploadedFile->getClientOriginalName();
                     $fileSize = $uploadedFile->getSize(); // Tamaño en bytes
@@ -51,14 +52,26 @@ class FileController extends Controller
 
         } catch (Exception $e) {
             Log::error("Error al subir archivo: " . $e->getMessage() . " Stack: " . $e->getTraceAsString());
-            return redirect()->back()->with('error', 'Error al subir el archivo: ' . $e->getMessage());
+            return redirect()->back()->with('error', 'Error al subir el archivo. Revisa el log para más detalles.');
         }
 
     }
 
+    /**
+     * Descarga para usuarios autenticados del panel.
+     */
+    public function show(File $file) {
+        $disk = $file->storageDisk();
+        abort_unless($disk, 404);
+
+        return Storage::disk($disk)->download($file->file_path, $file->original_file_name);
+    }
+
     public function destroy(File $file) {
 
-        Storage::disk('public')->delete($file->file_path);
+        if ($disk = $file->storageDisk()) {
+            Storage::disk($disk)->delete($file->file_path);
+        }
 
         $file->delete();
 

@@ -1,0 +1,42 @@
+name: deploy
+
+# Despliegue manual a CloudPanel con Dploy (Actions > deploy > Run workflow).
+# Para desplegar en cada push a main, agrega:  push: { branches: [main] }
+#
+# Secrets requeridos en el repositorio:
+#   DEPLOY_HOST     IP o dominio del servidor
+#   DEPLOY_USER     usuario del sitio en CloudPanel
+#   DEPLOY_SSH_KEY  llave privada autorizada en ~/.ssh/authorized_keys de ese usuario
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Rama o tag a desplegar'
+        required: true
+        default: 'main'
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validar ref
+        env:
+          REF: ${{ inputs.ref }}
+        run: |
+          [[ "$REF" =~ ^[A-Za-z0-9._/-]+$ ]] || { echo "Ref inválida: $REF"; exit 1; }
+
+      - name: Dploy deploy
+        uses: appleboy/ssh-action@v1
+        env:
+          REF: ${{ inputs.ref }}
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          envs: REF
+          script: dploy deploy "$REF"

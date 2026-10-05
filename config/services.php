@@ -20,6 +20,10 @@ return [
         'phone_number_id' => env('WHATSAPP_PHONE_NUMBER_ID'),
         'api_version' => env('WHATSAPP_API_VERSION', 'v20.0'), // Ejemplo v17.0, v18.0, etc.
         'verify_token' => env('WHATSAPP_VERIFY_TOKEN'),
+        // "App Secret" de la app de Meta: se usa para validar la firma X-Hub-Signature-256 del webhook.
+        'app_secret' => env('WHATSAPP_APP_SECRET'),
+        // Solo para desarrollo sin App Secret (p. ej. pruebas con ngrok). Nunca en producción.
+        'allow_unsigned_webhooks' => (bool) env('WHATSAPP_ALLOW_UNSIGNED_WEBHOOKS', false),
         'document_base_url' => env('WHATSAPP_DOCUMENT_BASE_URL'), // Para los links de documentos
     ],
     'gemini' => [

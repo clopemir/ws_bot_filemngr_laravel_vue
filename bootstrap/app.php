@@ -27,7 +27,9 @@ return Application::configure(basePath: dirname(__DIR__))
             '/webhook'
         ]);
 
-
+        // CloudPanel puede atender HTTPS en un proxy local (nginx/Varnish): confiar en sus cabeceras
+        // X-Forwarded-* para que Laravel detecte https y los enlaces firmados sean válidos.
+        $middleware->trustProxies(at: ['127.0.0.1', '::1']);
 
     })
     ->withExceptions(function (Exceptions $exceptions) {

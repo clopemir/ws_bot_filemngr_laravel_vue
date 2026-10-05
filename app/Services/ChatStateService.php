@@ -2,26 +2,32 @@
 
 namespace App\Services;
 
-use Exception;
+use App\Jobs\NotifyAgentJob;
+use App\Jobs\NotifySecurityEventJob;
+use App\Jobs\SendClientDocumentsJob;
 use App\Models\Chat;
 use App\Models\Client;
-use Illuminate\Support\Str;
-use App\Jobs\NotifyAgentJob;
 use App\Models\File as ClientFile;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 class ChatStateService
 {
+    /**
+     * Estados que solo son accesibles con una sesión de cliente verificada y vigente.
+     */
+    private const PROTECTED_ACTIONS = [
+        Chat::ACTION_CLIENT_OPTIONS,
+        Chat::ACTION_REQUEST_DOCUMENT_CATEGORY,
+        Chat::ACTION_AWAITING_AGENT,
+    ];
+
     public function __construct(
         private WhatsAppService $whatsAppService,
         private ClientService $clientService,
+        private ClientVerificationService $verificationService,
         private GeminiService $geminiService
     ) {
-
-        $this->whatsAppService = $whatsAppService;
-        $this->clientService = $clientService;
-        $this->geminiService = $geminiService;
     }
 
     /**
@@ -29,12 +35,20 @@ class ChatStateService
      */
     public function handleState(Chat $chat, object $payload, object $intent): void
     {
+        if (in_array($chat->action, self::PROTECTED_ACTIONS, true) && !$chat->hasValidSession()) {
+            $this->expireSession($chat);
+            return;
+        }
+
         switch ($chat->action) {
             case Chat::ACTION_BASE:
                 $this->handleBaseState($chat, $payload, $intent);
                 break;
             case Chat::ACTION_REQUEST_RFC:
-                $this->handleRfcRequestState($chat, $payload);
+                $this->handleRfcRequestState($chat, $payload, $intent);
+                break;
+            case Chat::ACTION_REQUEST_OTP:
+                $this->handleOtpState($chat, $payload, $intent);
                 break;
             case Chat::ACTION_CLIENT_OPTIONS:
                 $this->handleClientOptionsState($chat, $payload, $intent);
@@ -42,10 +56,9 @@ class ChatStateService
             case Chat::ACTION_REQUEST_DOCUMENT_CATEGORY:
                 $this->handleRequestDocumentCategoryState($chat, $payload, $intent);
                 break;
-            case Chat::ACTION_IA_CONVERSATION:
-                $this->handleIaConversationState($chat, $payload);
+            case Chat::ACTION_AWAITING_AGENT:
+                $this->handleAwaitingAgentState($chat, $payload, $intent);
                 break;
-            // Otros estados...
             default:
                 Log::warning("Acción de chat desconocida: {$chat->action} para el chat ID: {$chat->id}");
                 $this->resetChat($chat);
@@ -54,13 +67,13 @@ class ChatStateService
     }
 
     /**
-     * Resetea el chat al estado inicial y envía los botones de bienvenida.
+     * Resetea el chat al estado inicial, cierra la sesión y se despide.
      */
     public function resetChat(Chat $chat): void
     {
-        $chat->update(['action' => Chat::ACTION_BASE, 'client_rfc' => null, 'client_id' => null]);
+        $chat->clearSession();
 
-        $this->whatsAppService->sendTextMessage($chat->user_phone, "Gracias por contactarnos *{$chat->user_name}*\n\nSi necesitas algo más, no dudes en escribirnos de nuevo. 👋🏼");
+        $this->whatsAppService->sendTextMessage($chat->user_phone, trans('whatsapp.goodbye', ['name' => $chat->user_name]));
     }
 
     // --- MANEJADORES DE ESTADO ---
@@ -69,110 +82,192 @@ class ChatStateService
     {
         $this->whatsAppService->sendTypingIndicator($payload->messageId);
 
-        if ($payload->userMessage === 'client') {
+        if ($intent->name === 'is_client') {
+            if ($chat->hasValidSession()) {
+                $chat->update(['action' => Chat::ACTION_CLIENT_OPTIONS]);
+                $this->whatsAppService->sendClientOptions($payload->userPhone, $chat->client->client_name);
+                return;
+            }
+
             $chat->update(['action' => Chat::ACTION_REQUEST_RFC]);
             $this->whatsAppService->sendTextMessage($payload->userPhone, trans('whatsapp.request_rfc'));
         } elseif ($intent->name === 'is_not_client') {
-            // Lógica para no clientes
             $this->whatsAppService->sendInfo($payload->userPhone, $payload->userName);
             $this->resetChat($chat);
         } else {
-            // Si no se reconoce la intención, se reenvían los botones.
             $this->whatsAppService->sendInitialButtons($payload->userPhone, $payload->userName);
         }
     }
 
-    private function handleRfcRequestState(Chat $chat, object $payload): void
+    /**
+     * Factor 1: número registrado + RFC. Si el número no está registrado, se pasa al factor 2.
+     */
+    private function handleRfcRequestState(Chat $chat, object $payload, object $intent): void
     {
+        $this->whatsAppService->sendTypingIndicator($payload->messageId);
+        $phone = $payload->userPhone;
+
+        if ($intent->name !== 'text_input') {
+            $this->whatsAppService->sendTextMessage($phone, trans('whatsapp.request_rfc'));
+            return;
+        }
+
+        if ($this->verificationService->isLockedOut($phone)) {
+            $this->whatsAppService->sendTextMessage($phone, trans('whatsapp.errors.too_many_attempts', [
+                'minutes' => $this->verificationService->lockoutMinutes($phone),
+            ]));
+            $chat->clearSession();
+            return;
+        }
+
         $rfc = Str::upper(Str::squish($payload->userMessage));
 
         if (!$this->clientService->isValidRfcFormat($rfc)) {
-            $this->whatsAppService->sendTypingIndicator($payload->messageId);
-
-            $this->whatsAppService->sendTextMessage($payload->userPhone, trans('whatsapp.errors.invalid_rfc'));
+            $this->whatsAppService->sendTextMessage($phone, trans('whatsapp.errors.invalid_rfc'));
             return; // Mantenemos el estado para que reintente.
         }
 
+        // Cada búsqueda cuenta como intento; el contador se limpia al verificar con éxito.
+        $this->verificationService->registerRfcAttempt($phone);
+
         $client = $this->clientService->getClientByRfc($rfc);
 
+        // Factor 1 cumplido: el número que escribe es el registrado para ese RFC.
+        if ($client && $client->ownsPhone($phone)) {
+            $this->verificationService->grantSession($chat, $client, Chat::VERIFIED_BY_PHONE);
+            $this->whatsAppService->sendClientOptions($phone, $client->client_name);
+            return;
+        }
+
+        // Un cliente registrado puede recibir el detalle de "RFC no encontrado" (p. ej. un error al teclear).
+        if (!$client && $this->clientService->isRegisteredPhone($phone)) {
+            $this->whatsAppService->sendTextMessage($phone, trans('whatsapp.errors.rfc_not_found', ['rfc' => $rfc]));
+            return;
+        }
+
+        // Número NO registrado: factor 2. La respuesta es idéntica exista o no el RFC,
+        // para que nadie pueda usar el bot para averiguar quién es cliente.
         if ($client) {
-            $chat->update([
-                'client_rfc' => Str::lower($rfc),
-                'client_id' => $client->id,
-                'is_client' => true,
-                'action' => Chat::ACTION_CLIENT_OPTIONS,
-            ]);
-            try {
-                $this->whatsAppService->sendTypingIndicator($payload->messageId);
+            $this->verificationService->issueCode($chat, $client);
+            NotifySecurityEventJob::dispatchAfterResponse($client, NotifySecurityEventJob::UNREGISTERED_PHONE, $phone);
+        }
 
+        $chat->update(['action' => Chat::ACTION_REQUEST_OTP]);
+        $this->whatsAppService->sendTextMessage($phone, trans('whatsapp.otp.sent', [
+            'minutes' => (int) config('whatsapp_bot.security.otp_ttl_minutes', 10),
+        ]));
+    }
 
-                $this->whatsAppService->sendClientOptions($payload->userPhone, $client->client_name, Str::lower($rfc));
+    /**
+     * Factor 2: el solicitante escribe el código que el titular recibió en sus medios registrados.
+     */
+    private function handleOtpState(Chat $chat, object $payload, object $intent): void
+    {
+        $this->whatsAppService->sendTypingIndicator($payload->messageId);
+        $phone = $payload->userPhone;
 
-            } catch (Exception $e) {
-                Log::error("Error al enviar opciones al cliente {$client->id} ({$rfc}): " . $e->getMessage(), [
-                    'wa_id' => $payload->waId,
-                    'user_phone' => $payload->userPhone,
-                ]);
-            }
+        if ($intent->name !== 'text_input') {
+            $this->whatsAppService->sendTextMessage($phone, trans('whatsapp.otp.prompt'));
+            return;
+        }
 
-        } else {
-            $this->whatsAppService->sendTypingIndicator($payload->messageId);
+        $result = $this->verificationService->verifyCode($chat, $payload->userMessage);
 
-            $this->whatsAppService->sendTextMessage($payload->userPhone, trans('whatsapp.errors.rfc_not_found', ['rfc' => $rfc]));
-            $this->resetChat($chat);
+        switch ($result['status']) {
+            case ClientVerificationService::CODE_VERIFIED:
+                $this->whatsAppService->sendTextMessage($phone, trans('whatsapp.otp.verified'));
+                $this->whatsAppService->sendClientOptions($phone, $result['client']->client_name);
+                NotifySecurityEventJob::dispatchAfterResponse($result['client'], NotifySecurityEventJob::OTP_VERIFIED, $phone);
+                break;
+
+            case ClientVerificationService::CODE_INVALID:
+                $this->whatsAppService->sendTextMessage($phone, trans('whatsapp.otp.invalid', ['remaining' => $result['remaining']]));
+                break;
+
+            case ClientVerificationService::CODE_LOCKED:
+                $chat->clearSession();
+                $this->whatsAppService->sendTextMessage($phone, trans('whatsapp.otp.locked'));
+                if ($result['client'] ?? null) {
+                    NotifySecurityEventJob::dispatchAfterResponse($result['client'], NotifySecurityEventJob::OTP_LOCKED, $phone);
+                }
+                break;
+
+            default: // Vencido o inexistente
+                $chat->clearSession();
+                $this->whatsAppService->sendTextMessage($phone, trans('whatsapp.otp.expired'));
+                break;
         }
     }
 
     private function handleClientOptionsState(Chat $chat, object $payload, object $intent): void
     {
-        if ($intent->name === 'ask_doc_categories') {
+        $client = $chat->client;
 
+        if ($intent->name === 'ask_doc_categories') {
             $this->whatsAppService->sendTypingIndicator($payload->messageId);
 
-            $categories = ClientFile::where('client_rfc', $intent->data['rfc'])
-                ->whereNotNull('category')->where('category', '!=', '')
-                ->distinct()->pluck('category')->all();
+            $categories = $this->categoriesFor($client);
 
             if (empty($categories)) {
-                $this->whatsAppService->sendTextMessage($payload->userPhone, trans('whatsapp.errors.no_categories_found', ['rfc' => $intent->data['rfc']]));
-                $this->whatsAppService->sendClientOptions($payload->userPhone, $payload->userName, $chat->client_rfc); // Volver a mostrar opciones
+                $this->whatsAppService->sendTextMessage($payload->userPhone, trans('whatsapp.errors.no_categories_found'));
+                $this->whatsAppService->sendClientOptions($payload->userPhone, $client->client_name);
                 return;
             }
 
             $chat->update(['action' => Chat::ACTION_REQUEST_DOCUMENT_CATEGORY]);
-            $this->whatsAppService->sendDocumentCategoryOptions($payload->userPhone, $payload->userName, $intent->data['rfc'], $categories);
+            $this->whatsAppService->sendDocumentCategoryOptions($payload->userPhone, $client->client_name, $categories);
 
         } elseif ($intent->name === 'talk_to_agent') {
             $this->handleTalkToAgent($chat);
         } else {
             $this->whatsAppService->sendTextMessage($payload->userPhone, trans('whatsapp.errors.option_not_recognized'));
-            $this->whatsAppService->sendClientOptions($payload->userPhone, $payload->userName, $chat->client_rfc);
+            $this->whatsAppService->sendClientOptions($payload->userPhone, $client->client_name);
         }
     }
 
     private function handleRequestDocumentCategoryState(Chat $chat, object $payload, object $intent): void
     {
-        if ($intent->name === 'choose_doc_category') {
-            $this->whatsAppService->sendTypingIndicator($payload->messageId);
-            $rfc = $intent->data['rfc'];
-            $category = $intent->data['category'];
-
-            if ($chat->client_rfc !== $rfc) {
-                Log::warning("Inconsistencia de RFC en el chat {$chat->id}. Chat RFC: {$chat->client_rfc}, Intent RFC: {$rfc}");
-                $this->whatsAppService->sendTextMessage($payload->userPhone, trans('whatsapp.errors.security_issue'));
-                $this->resetChat($chat);
-                return;
-            }
-
-            $this->sendClientDocuments($chat, $category);
-            // Después de enviar, volvemos a las opciones del cliente.
-            $chat->update(['action' => Chat::ACTION_CLIENT_OPTIONS]);
-            $this->whatsAppService->sendTextMessage($payload->userPhone, trans('whatsapp.need_anything_else'));
-            //$this->whatsAppService->sendClientOptions($payload->userPhone, $payload->userName, $chat->client_rfc);
-
-        } else {
-             $this->whatsAppService->sendTextMessage($payload->userPhone, trans('whatsapp.errors.select_from_list'));
+        // Si el usuario toca una opción del menú anterior, la atendemos normalmente.
+        if (in_array($intent->name, ['ask_doc_categories', 'talk_to_agent'], true)) {
+            $this->handleClientOptionsState($chat, $payload, $intent);
+            return;
         }
+
+        if ($intent->name !== 'choose_doc_category') {
+            $this->whatsAppService->sendTextMessage($payload->userPhone, trans('whatsapp.errors.select_from_list'));
+            return;
+        }
+
+        $this->whatsAppService->sendTypingIndicator($payload->messageId);
+
+        // La categoría se resuelve SOLO entre las del cliente verificado en la sesión.
+        $category = collect($this->categoriesFor($chat->client))
+            ->first(fn (string $category) => WhatsAppService::categoryOptionId($category) === $intent->data['option_id']);
+
+        if (!$category) {
+            $this->whatsAppService->sendTextMessage($payload->userPhone, trans('whatsapp.errors.select_from_list'));
+            return;
+        }
+
+        $this->whatsAppService->sendTextMessage($payload->userPhone, trans('whatsapp.sending_files', ['category' => $category]));
+        $chat->update(['action' => Chat::ACTION_CLIENT_OPTIONS]);
+
+        // Se ejecuta después de responder 200 a Meta (sin reintentos por demora) y sin depender
+        // de que haya un worker de colas corriendo en el servidor.
+        SendClientDocumentsJob::dispatchAfterResponse($chat->id, $chat->client_id, $category);
+    }
+
+    private function handleAwaitingAgentState(Chat $chat, object $payload, object $intent): void
+    {
+        $chat->update(['action' => Chat::ACTION_CLIENT_OPTIONS]);
+
+        if ($intent->name === 'text_input') {
+            $this->whatsAppService->sendTextMessage($payload->userPhone, trans('whatsapp.agent_already_notified'));
+            $this->whatsAppService->sendClientOptions($payload->userPhone, $chat->client->client_name);
+            return;
+        }
+
+        $this->handleClientOptionsState($chat, $payload, $intent);
     }
 
     private function handleTalkToAgent(Chat $chat): void
@@ -186,64 +281,36 @@ class ChatStateService
 
         $this->whatsAppService->sendTextMessage($chat->user_phone, trans('whatsapp.agent_notification_pending'));
 
-        // Despachar un Job para que se encargue de la notificación.
-        // Esto libera el proceso del webhook inmediatamente.
-        NotifyAgentJob::dispatch($client);
+        // Se notifica con el número que realmente escribió (puede ser un tercero verificado por código).
+        NotifyAgentJob::dispatch($client, $chat->user_phone);
 
         $chat->update(['action' => Chat::ACTION_AWAITING_AGENT]);
     }
 
-    private function sendClientDocuments(Chat $chat, string $category): void
+    private function expireSession(Chat $chat): void
     {
-        $files = ClientFile::where('client_rfc', $chat->client_rfc)
-            ->where('category', $category)
-            ->get();
-
-        if ($files->isEmpty()) {
-            $this->whatsAppService->sendTextMessage($chat->user_phone, trans('whatsapp.errors.no_files_in_category', ['category' => $category]));
-            return;
-        }
-
-        $this->whatsAppService->sendTextMessage($chat->user_phone, trans('whatsapp.sending_files', ['category' => $category]));
-
-        $filesSentCount = 0;
-        foreach ($files as $file) {
-            try {
-                if (!Storage::disk('public')->exists($file->file_path)) {
-                    Log::error("Archivo no encontrado en storage: {$file->file_path}");
-                    continue;
-                }
-                $fileUrl = Storage::disk('public')->url($file->file_path);
-
-                $this->whatsAppService->sendDocument(
-                    $chat->user_phone,
-                    $fileUrl,
-                    "Archivo de {$category}: {$file->original_file_name}",
-                    $file->original_file_name
-                );
-                $filesSentCount++;
-
-                usleep(1000000); // Espera 2 segundos entre envíos para evitar problemas de rate limiting
-            } catch (Exception $e) {
-                Log::error("Error al enviar documento {$file->id}: " . $e->getMessage());
-            }
-        }
-
-        if($filesSentCount > 0) {
-            $this->whatsAppService->sendTextMessage($chat->user_phone, trans('whatsapp.files_sent_summary', ['count' => $filesSentCount, 'category' => $category]));
-        } else {
-            $this->whatsAppService->sendTextMessage($chat->user_phone, trans('whatsapp.errors.files_not_sent', ['category' => $category]));
-        }
+        $chat->clearSession(Chat::ACTION_REQUEST_RFC);
+        $this->whatsAppService->sendTextMessage($chat->user_phone, trans('whatsapp.errors.session_expired'));
     }
 
+    /**
+     * @return string[]
+     */
+    private function categoriesFor(Client $client): array
+    {
+        return ClientFile::where('client_rfc', $client->client_rfc)
+            ->whereNotNull('category')->where('category', '!=', '')
+            ->distinct()->orderBy('category')->pluck('category')->all();
+    }
+
+    /**
+     * Conversación con IA (solo disponible para agentes).
+     */
     public function handleIaConversationState(Chat $chat, object $payload): void
     {
-        // Verificar si el chat ya está en conversación con IA
         $this->whatsAppService->sendTypingIndicator($payload->messageId);
 
-        // Continuar conversación con IA
-        $botResponse = $this->geminiService->chatWithIA(str_replace(["\n", "\r"], ' ', $payload->userMessage), $payload->userName, $chat->context);
-        $this->whatsAppService->sendTextMessage($payload->userPhone, $botResponse); //. "\n\n_(Escribe 'salir' para volver al menú)_"
-        // El estado sigue siendo ACTION_IA_CONVERSATION
+        $botResponse = $this->geminiService->chatWithIA(str_replace(["\n", "\r"], ' ', $payload->userMessage), $payload->userName, $chat->context ?? []);
+        $this->whatsAppService->sendTextMessage($payload->userPhone, $botResponse);
     }
 }
