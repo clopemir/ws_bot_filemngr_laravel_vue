@@ -28,7 +28,10 @@ return [
     ],
     'gemini' => [
         'api_key' => env('GEMINI_API_KEY'),
-        'url' => env('GEMINI_API_URL', 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent'), // Ajusta el modelo si es necesario
+        // gemini-2.0-flash se apagó el 1 de junio de 2026; gemini-3.6-flash es su reemplazo oficial.
+        'url' => env('GEMINI_API_URL', 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent'),
+        // Nivel de razonamiento de los modelos 3.x (minimal|low|medium|high). Vacío = valor por defecto del modelo.
+        'thinking_level' => env('GEMINI_THINKING_LEVEL', 'low'),
     ],
 
     'postmark' => [

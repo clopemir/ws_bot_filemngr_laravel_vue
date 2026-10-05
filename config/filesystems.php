@@ -33,7 +33,8 @@ return [
         'local' => [
             'driver' => 'local',
             'root' => storage_path('app/private'),
-            'serve' => true,
+            // Desactivado: los documentos se sirven solo por rutas propias (panel con sesión o enlace firmado).
+            'serve' => false,
             'throw' => false,
             'report' => false,
         ],

@@ -24,7 +24,7 @@ Route::post('webhook', [WaController::class, 'receiveMessage'])->middleware(Veri
 
 // Descarga de documentos por WhatsApp: enlace firmado y temporal (ver File::temporaryDownloadUrl)
 Route::get('wa/files/{file}', SignedFileController::class)
-    ->middleware(['signed', 'throttle:60,1'])
+    ->middleware(['signed:relative', 'throttle:60,1'])
     ->name('whatsapp.files.download');
 
 Route::middleware(['auth'])->group(function () {
