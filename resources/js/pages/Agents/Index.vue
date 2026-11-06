@@ -3,6 +3,7 @@ import AppLayout from '@/layouts/AppLayout.vue';
 import { Head, Link } from '@inertiajs/vue3';
 import { router } from '@inertiajs/vue3';
 import { Button } from '@/components/ui/button';
+import Pagination from '@/components/Pagination.vue';
 import { Pencil, Trash, CirclePlus } from 'lucide-vue-next';
 import { useAgentForm } from '../../composables/useAgents';
 
@@ -24,11 +25,6 @@ const breadcrumbs = [
     },
 ];
 
-function goToPage(url = null) {
-    if (url) {
-        router.visit(url, {preserveScroll: true})
-    }
-}
 
 
 
@@ -56,6 +52,7 @@ function goToPage(url = null) {
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-gray-100 bg-white dark:divide-gray-800 dark:bg-gray-900">
+                            <tr v-if="!agents.data.length"><td colspan="4" class="px-4 py-8 text-center text-sm text-muted-foreground">Sin resultados.</td></tr>
                             <tr v-for="agent in agents.data" :key="agent.id">
                                 <td class="px-4 py-2 text-sm text-gray-800 dark:text-gray-200">{{ agent.agent_name }} {{ agent.agent_lname }} </td>
                                 <td class="px-4 py-2 text-sm text-gray-800 dark:text-gray-200">{{ agent.agent_phone }}</td>
@@ -75,26 +72,7 @@ function goToPage(url = null) {
                     </table>
                 </div>
 
-                <!-- Paginación -->
-                <div class="mt-4 flex flex-wrap items-center justify-between">
-                    <div class="text-sm text-gray-600 dark:text-gray-400">
-                        Mostrando {{ agents.from }} a {{ agents.to }} de {{ agents.total }} resultados
-                    </div>
-                    <div class="mt-2 flex space-x-1 md:mt-0">
-                        <button
-                            v-for="(link, index) in agents.links"
-                            :key="index"
-                            :disabled="!link.url"
-                            @click="goToPage(link.url)"
-                            v-html="link.label"
-                            class="rounded-md px-3 py-1 text-sm transition-all"
-                            :class="[
-                                link.active ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-800 dark:bg-gray-700 dark:text-gray-200',
-                                !link.url ? 'cursor-not-allowed opacity-50' : 'hover:bg-blue-500 hover:text-white',
-                            ]"
-                        />
-                    </div>
-                </div>
+                <div class="mt-4"><Pagination :paginator="agents" /></div>
             </div>
         </div>
     </AppLayout>

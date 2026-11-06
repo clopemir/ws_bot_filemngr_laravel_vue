@@ -16,8 +16,10 @@ class ClientController extends Controller
     public function index(Request $request) {
 
         $search = $request->input('search');
+        $relations = ['agent', 'folders' => fn ($query) => $query->whereNull('parent_id')];
+
         if ($search) {
-            $clients = Client::with('agent')
+            $clients = Client::with($relations)
                 ->where('client_name', 'like', '%' . $search . '%')
                 ->orWhere('client_lname', 'like', '%' . $search . '%')
                 ->orWhere('client_rfc', 'like', '%' . $search . '%')
@@ -25,9 +27,10 @@ class ClientController extends Controller
                     $query->where('agent_name', 'like', '%' . $search . '%');
                 })
                 ->latest()
-                ->paginate(10);
+                ->paginate(10)
+                ->withQueryString();
         } else {
-            $clients = Client::with('agent')->latest()->paginate(10);
+            $clients = Client::with($relations)->latest()->paginate(10);
         }
 
       //  $clients = Client::with('agent')->latest()->paginate(10);

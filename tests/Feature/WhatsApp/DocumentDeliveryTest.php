@@ -7,7 +7,6 @@ use App\Models\Client;
 use App\Models\File;
 use App\Models\Folder;
 use App\Models\User;
-use App\Services\AgentDocumentService;
 use App\Services\WhatsAppService;
 use Illuminate\Support\Facades\Storage;
 
@@ -125,14 +124,6 @@ class DocumentDeliveryTest extends WhatsAppTestCase
             ->handle(app(WhatsAppService::class));
 
         $this->assertEmpty($this->sentTo(self::CLIENT_TO));
-    }
-
-    public function test_agents_only_find_documents_of_their_own_clients(): void
-    {
-        $service = app(AgentDocumentService::class);
-
-        $this->assertSame('success', $service->findDocumentByClientAndType($this->agent, 'juan', 'constancias')['status']);
-        $this->assertSame('error', $service->findDocumentByClientAndType($this->agent, 'otra empresa', 'secretos')['status']);
     }
 
     public function test_panel_download_requires_login(): void

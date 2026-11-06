@@ -5,10 +5,13 @@
 /public/build
 /public/hot
 /public/storage
+/public/manual
 /storage/*.key
 /storage/pail
 /vendor
+/deploy
 .env
+.env.example
 .env.backup
 .env.production
 .phpactor.json
@@ -17,6 +20,7 @@ Homestead.json
 Homestead.yaml
 npm-debug.log
 yarn-error.log
+DEPLOY.md
 /auth.json
 /.fleet
 /.idea

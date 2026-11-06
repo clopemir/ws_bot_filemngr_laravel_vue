@@ -2,125 +2,172 @@
 
 namespace App\Http\Controllers;
 
-use Inertia\Inertia;
+use App\Models\File;
 use App\Models\Folder;
-use Exception;
+use App\Services\FolderService;
+use Closure;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
+use Inertia\Inertia;
+use Inertia\Response;
+use Throwable;
 
 class FolderController extends Controller
 {
-    public function index(Request $request) {
+    public function __construct(private FolderService $folders)
+    {
+    }
 
-        // Si se proporciona un filtro de cliente, filtra las carpetas por ese cliente
-        $search = $request->input('search');
+    public function index(Request $request): Response
+    {
+        $search = trim((string) $request->input('search'));
 
-        if ($search) {
-            // Filtra las carpetas que contienen el término de búsqueda en el nombre de la carpeta
-            $folders = Folder::with(['children', 'client'])
-                ->whereNull('parent_id')
-                ->where('folder_name', 'like', '%' . $search . '%')
-                ->orWhereHas('client', function ($query) use ($search) {
-                    $query->where('client_name', 'like', '%' . $search . '%');
-                })
-                ->whereNull('parent_id') // Solo carpetas raíz
-                ->paginate(10);
-
-        } else {
-            // Si no hay filtro, muestra todas las carpetas raíz
-            $folders = Folder::with(['children', 'client'])->whereNull('parent_id')->paginate(10);
-        }
-        //$folders = Folder::with(['children', 'client'])->whereNull('parent_id')->paginate(10);
+        $folders = Folder::query()
+            ->whereNull('parent_id')
+            ->with(['client' => fn ($query) => $query->withCount('files')])
+            ->withCount('children')
+            ->when($search !== '', function (Builder $query) use ($search) {
+                $query->where(function (Builder $query) use ($search) {
+                    $query->where('folder_name', 'like', "%{$search}%")
+                        ->orWhereHas('client', function (Builder $query) use ($search) {
+                            $query->where('client_name', 'like', "%{$search}%")
+                                ->orWhere('client_lname', 'like', "%{$search}%")
+                                ->orWhere('client_rfc', 'like', "%{$search}%");
+                        });
+                });
+            })
+            ->orderBy('folder_name')
+            ->paginate(12)
+            ->withQueryString();
 
         return Inertia::render('Folders/Index', [
             'folders' => $folders,
-            'search' => $search
+            'search' => $search,
         ]);
     }
 
-    public function create($folderPath) {
-
-        $folder = Folder::where('path', $folderPath)->firstOrFail();
-
-        return Inertia::render('Folders/Create', [
-            'folder' => $folder,
-        ]);
+    public function show(Folder $folder): Response
+    {
+        return $this->renderFolder($folder);
     }
 
-    public function show(Folder $folder) {
-
-        $folder->load(['files', 'children' => function ($query) { $query->withCount('files'); },]);
-
-        return Inertia::render('Folders/Show', [
-            'folder' => $folder
-        ]);
+    public function showByPath(string $path): Response
+    {
+        return $this->renderFolder(Folder::where('path', $path)->firstOrFail());
     }
 
+    public function store(Request $request): RedirectResponse
+    {
+        $validated = $request->validate(['parent_id' => 'required|exists:folders,id']);
+        $parent = Folder::findOrFail($validated['parent_id']);
 
-    public function showByPath($path) {
-
-        $folder = Folder::where('path', $path)->with(['children', 'files'])->firstOrFail();
-
-        return Inertia::render('Folders/Show', [
-            'folder' => $folder
-        ]);
-    }
-
-    public function store(Request $request) {
-
+        $name = $this->validatedName($request, $parent);
 
         try {
+            $this->folders->create($parent, $name);
+        } catch (Throwable $e) {
+            Log::error('Error al crear la carpeta.', ['parent_id' => $parent->id, 'error' => $e->getMessage()]);
 
-            $validated = $request->validate([
-                'folder_name' => 'required|string|max:255',
-                'parent_id' => 'nullable|exists:folders,id',
-            ]);
-
-            $newFolder = Folder::create($validated);
-
-            $path = $this->getFullPath($newFolder);
-
-            Storage::disk('local')->makeDirectory($path);
-
-            return redirect()->back()->with('success', 'La carpeta se ha creado correctamente');
-
-        } catch (Exception $e) {
-
-            Log::error($e->getMessage());
-            return redirect()->back()->with('error', 'Error al crear la carpeta: ' . $e->getMessage());
+            return back()->with('error', 'No se pudo crear la carpeta.');
         }
 
-
+        return back()->with('success', "Carpeta \"{$name}\" creada.");
     }
 
-    public function update(Folder $folder, Request $request) {
-
-    }
-
-    public function destroy(Folder $folder) {
-        $folder->delete();
-
-        return redirect()->route('folders.index')->with('success', 'Directorio Eliminado');
-
-    }
-
-
-    protected function getFullPath(Folder $folder): string {
-        $pathParts = [];
-        $currentFolder = $folder;
-
-        // Recorre hacia arriba para obtener todos los nombres de las carpetas padre
-        while ($currentFolder) {
-            array_unshift($pathParts, $currentFolder->folder_name); // Añade al principio del array
-            if ($currentFolder->parent_id) {
-                $currentFolder = Folder::find($currentFolder->parent_id);
-            } else {
-                $currentFolder = null; // Llegó a la raíz
-            }
+    public function update(Request $request, Folder $folder): RedirectResponse
+    {
+        if ($folder->isRoot()) {
+            return back()->with('error', 'La carpeta principal del cliente lleva su RFC y no se puede renombrar.');
         }
 
-        // Une todas las partes con el separador de directorios y prefija con 'clientes'
-        return 'clientes/' . implode('/', $pathParts);
+        $name = $this->validatedName($request, $folder->parent, $folder);
+
+        try {
+            $this->folders->rename($folder, $name);
+        } catch (Throwable $e) {
+            Log::error('Error al renombrar la carpeta.', ['folder_id' => $folder->id, 'error' => $e->getMessage()]);
+
+            return back()->with('error', 'No se pudo renombrar la carpeta. No se hicieron cambios.');
+        }
+
+        // Si se renombró desde su propia página, la URL anterior ya no existe.
+        return ($request->boolean('open') ? redirect("/folder/{$folder->path}") : back())
+            ->with('success', "Carpeta renombrada a \"{$name}\".");
+    }
+
+    public function destroy(Request $request, Folder $folder): RedirectResponse
+    {
+        if ($folder->isRoot()) {
+            return back()->with('error', 'La carpeta principal del cliente no se puede eliminar.');
+        }
+
+        $fileCount = File::whereIn('folder_id', $folder->subtree()->pluck('id'))->count();
+
+        // Borrar documentos es irreversible: hay que escribir el nombre exacto de la carpeta.
+        if ($fileCount > 0 && $request->input('confirm_name') !== $folder->folder_name) {
+            return back()->withErrors(['confirm_name' => 'Escribe el nombre exacto de la carpeta para confirmar.']);
+        }
+
+        $parentPath = $folder->parent->path;
+
+        try {
+            $deleted = $this->folders->delete($folder);
+        } catch (Throwable $e) {
+            Log::error('Error al eliminar la carpeta.', ['folder_id' => $folder->id, 'error' => $e->getMessage()]);
+
+            return back()->with('error', 'No se pudo eliminar la carpeta.');
+        }
+
+        return redirect("/folder/{$parentPath}")->with('success', $deleted > 0
+            ? "Carpeta eliminada junto con {$deleted} archivo(s)."
+            : 'Carpeta eliminada.');
+    }
+
+    private function renderFolder(Folder $folder): Response
+    {
+        $folder->load([
+            'files' => fn ($query) => $query->latest(),
+            'children' => fn ($query) => $query->withCount(['files', 'children'])->orderBy('folder_name'),
+        ]);
+
+        return Inertia::render('Folders/Show', [
+            'folder' => $folder,
+            'ancestors' => $folder->ancestors()->map->only(['id', 'folder_name', 'path'])->values(),
+            'clientInfo' => $folder->owningClient()?->only(['id', 'client_name', 'client_lname', 'client_rfc']),
+        ]);
+    }
+
+    /**
+     * El nombre debe generar una ruta válida y no repetirse dentro de la misma carpeta.
+     */
+    private function validatedName(Request $request, Folder $parent, ?Folder $current = null): string
+    {
+        $validated = $request->validate([
+            'folder_name' => [
+                'required', 'string', 'max:100',
+                function (string $attribute, mixed $value, Closure $fail) use ($parent, $current) {
+                    $slug = Str::slug((string) $value);
+
+                    if ($slug === '') {
+                        $fail('El nombre debe incluir letras o números.');
+                        return;
+                    }
+
+                    $exists = Folder::where('parent_id', $parent->id)
+                        ->where('slug', $slug)
+                        ->when($current, fn ($query) => $query->whereKeyNot($current->id))
+                        ->exists();
+
+                    if ($exists) {
+                        $fail('Ya existe una carpeta con ese nombre aquí.');
+                    }
+                },
+            ],
+        ]);
+
+        return Str::squish($validated['folder_name']);
     }
 }

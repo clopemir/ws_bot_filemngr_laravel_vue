@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Client;
 use Exception;
 use App\Models\File;
 use App\Models\Folder;
@@ -15,15 +14,19 @@ class FileController extends Controller
 
     public function store(Request $request) {
         $validated = $request->validate([
-            //'file_upload' => 'required|file|max:10240',
             'folder_id' => 'required|exists:folders,id',
+            'files' => 'required|array|min:1',
             'files.*' => 'required|file|max:20480'
         ]);
 
         try {
                 $folder = Folder::findOrFail($validated['folder_id']);
-                $client = Client::findOrFail($folder->client_id);
-                //$client = Client::where('id', '=', $folder->client_id)->firstOrFail();
+                $client = $folder->owningClient();
+
+                if (!$client) {
+                    Log::error('Carpeta sin cliente: no se pueden subir archivos.', ['folder_id' => $folder->id]);
+                    return back()->with('error', 'Esta carpeta no está vinculada a un cliente.');
+                }
 
                 foreach ($request->file('files') as $uploadedFile) {
 

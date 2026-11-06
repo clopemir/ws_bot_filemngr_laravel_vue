@@ -5,6 +5,8 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\FileController;
 use App\Http\Controllers\AgentController;
 use App\Http\Controllers\ClientController;
+use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\SearchController;
 use App\Http\Controllers\FolderController;
 use App\Http\Controllers\WhatsApp\WaController;
 use App\Http\Controllers\WhatsApp\SignedFileController;
@@ -29,19 +31,15 @@ Route::get('wa/files/{file}', SignedFileController::class)
 
 Route::middleware(['auth'])->group(function () {
 
-    Route::get('dashboard', function () {
-        return Inertia::render('Dashboard');
-    })->name('dashboard');
+    Route::get('dashboard', DashboardController::class)->name('dashboard');
+    Route::get('search', SearchController::class)->middleware('throttle:60,1')->name('search');
 
     Route::resource('clients', ClientController::class)->except('show');
     Route::resource('agents', AgentController::class)->except('show');
-    Route::resource('folders', FolderController::class);
-    Route::get('folder/{folderPath?}/create', [FolderController::class, 'create'])
-    ->where('folderPath', '.*');
+    Route::resource('folders', FolderController::class)->except(['create', 'edit']);
 
     Route::get('folder/{path}', [FolderController::class, 'showByPath'])
     ->where('path', '.*');
-    //->name('folders.show');
     Route::resource('files', FileController::class)->only(['store', 'show', 'destroy']);
 
 });

@@ -17,6 +17,9 @@ return [
     // Pausa (en milisegundos) entre el envío de cada documento para no saturar la API.
     'document_send_delay_ms' => env('WHATSAPP_DOCUMENT_DELAY_MS', 1000),
 
+    // Máximo de archivos que recibe un agente por solicitud (los más recientes).
+    'agent_max_files' => (int) env('WHATSAPP_AGENT_MAX_FILES', 5),
+
     /*
     |--------------------------------------------------------------------------
     | Seguridad del flujo de clientes

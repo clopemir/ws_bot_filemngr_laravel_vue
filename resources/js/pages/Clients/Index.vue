@@ -2,8 +2,10 @@
 import AppLayout from '@/layouts/AppLayout.vue';
 import { Head, Link, router, usePage } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
+import { useDebounceFn } from '@vueuse/core';
 import { Button } from '@/components/ui/button';
-import { Pencil, Trash, CirclePlus } from 'lucide-vue-next';
+import Pagination from '@/components/Pagination.vue';
+import { Pencil, Trash, CirclePlus, FolderOpen } from 'lucide-vue-next';
 import { useClientForm } from '../../composables/useClients';
 
 const { deleteClient } = useClientForm()
@@ -27,15 +29,10 @@ const breadcrumbs = [
     },
 ];
 
-function goToPage(url = null) {
-    if (url) {
-        router.visit(url, {preserveScroll: true})
-    }
-}
 
-function submitSearch() {
-    router.get('/clients', { search: search.value }, { preserveScroll: true, preserveState: true });
-}
+const submitSearch = useDebounceFn(() => {
+    router.get('/clients', search.value ? { search: search.value } : {}, { preserveScroll: true, preserveState: true, replace: true });
+}, 300);
 
 
 
@@ -77,13 +74,18 @@ function submitSearch() {
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-gray-100 bg-white dark:divide-gray-800 dark:bg-gray-900">
+                            <tr v-if="!clients.data.length"><td colspan="6" class="px-4 py-8 text-center text-sm text-muted-foreground">Sin resultados.</td></tr>
                             <tr v-for="cliente in clients.data" :key="cliente.id">
                                 <td class="px-4 py-2 text-sm text-gray-800 dark:text-gray-200">{{ cliente.client_name }} {{ cliente.client_lname }} </td>
                                 <td class="px-4 py-2 text-sm text-gray-800 dark:text-gray-200 uppercase">{{ cliente.client_rfc }}</td>
                                 <td class="px-4 py-2 text-sm text-gray-800 dark:text-gray-200">{{ cliente.client_phone }}</td>
                                 <td class="px-4 py-2 text-sm text-gray-800 dark:text-gray-200">{{ cliente.client_mail }}</td>
-                                <td class="px-4 py-2 text-sm text-gray-800 dark:text-gray-200">{{ cliente.agent.agent_name }}</td>
+                                <td class="px-4 py-2 text-sm text-gray-800 dark:text-gray-200">{{ cliente.agent?.agent_name ?? 'Sin agente' }}</td>
                                 <td class="px-4 py-2 text-sm text-gray-800 dark:text-gray-200 flex justify-center gap-2">
+                                    <Button v-if="cliente.folders?.length" as-child size="sm" variant="outline" title="Ver archivos">
+                                        <Link :href="`/folder/${cliente.folders[0].path}`" :aria-label="`Ver archivos de ${cliente.client_name}`"> <FolderOpen /> </Link>
+                                    </Button>
+
                                     <Button as-child size="sm" class="bg-blue-500 text-white hover:bg-blue-700">
                                         <Link :href="`/clients/${cliente.id}/edit`"> <Pencil /> </Link>
                                     </Button>
@@ -98,26 +100,7 @@ function submitSearch() {
                     </table>
                 </div>
 
-                <!-- Paginación -->
-                <div class="mt-4 flex flex-wrap items-center justify-between">
-                    <div class="text-sm text-gray-600 dark:text-gray-400">
-                        Mostrando {{ clients.from }} a {{ clients.to }} de {{ clients.total }} resultados
-                    </div>
-                    <div class="mt-2 flex space-x-1 md:mt-0">
-                        <button
-                            v-for="(link, index) in clients.links"
-                            :key="index"
-                            :disabled="!link.url"
-                            @click="goToPage(link.url)"
-                            v-html="link.label"
-                            class="rounded-md px-3 py-1 text-sm transition-all"
-                            :class="[
-                                link.active ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-800 dark:bg-gray-700 dark:text-gray-200',
-                                !link.url ? 'cursor-not-allowed opacity-50' : 'hover:bg-blue-500 hover:text-white',
-                            ]"
-                        />
-                    </div>
-                </div>
+                <div class="mt-4"><Pagination :paginator="clients" /></div>
             </div>
         </div>
     </AppLayout>
