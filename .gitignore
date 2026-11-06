@@ -9,6 +9,7 @@
 /storage/*.key
 /storage/pail
 /vendor
+/deploy
 .env
 .env.example
 .env.backup
