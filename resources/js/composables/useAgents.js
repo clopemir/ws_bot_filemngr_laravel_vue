@@ -56,7 +56,7 @@ export function useAgentForm(initialData = null) {
     }
 
     const deleteAgent = (id) => {
-        //if(!window.confirm('Seguro de que quieres Eliminar este Agente?')) return;
+        if (!window.confirm('¿Seguro que quieres eliminar este agente?')) return;
 
         router.delete(route('agents.destroy', id), {
             preserveScroll: true,

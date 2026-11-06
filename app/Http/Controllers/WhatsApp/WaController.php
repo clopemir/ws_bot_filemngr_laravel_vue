@@ -7,9 +7,8 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\WhatsAppWebhookRequest;
 use App\Models\Agent;
 use App\Models\Chat;
-use App\Services\AgentDocumentService;
 use App\Services\ChatStateService;
-use App\Services\GeminiService;
+use App\Services\AgentRequestHandler;
 use App\Services\WhatsApp\IntentParser;
 use App\Services\WhatsApp\PayloadParser;
 use App\Services\WhatsAppService;
@@ -25,9 +24,8 @@ class WaController extends Controller
 {
     public function __construct(
         private WhatsAppService $whatsAppService,
-        private AgentDocumentService $agentDocumentService,
         private ChatStateService $chatStateService,
-        private GeminiService $geminiService
+        private AgentRequestHandler $agentRequestHandler
     ) {
     }
 
@@ -75,7 +73,7 @@ class WaController extends Controller
             $agent = $this->findAgent($payload->userPhone);
 
             if ($agent) {
-                $this->handleAgentMessage($agent, $payload->userMessage, $chat, $payload);
+                $this->agentRequestHandler->handle($agent, $payload->userMessage, $chat, $payload);
                 $chat->addMessageToContext($payload->userMessage, 'user');
                 return response()->json(['status' => 'ok', 'action' => $chat->action]);
             }
@@ -136,47 +134,10 @@ class WaController extends Controller
     {
         $lastDigits = substr(PhoneNumber::digits($phone), -10);
 
-        return Agent::where('agent_phone', 'like', "%{$lastDigits}")
+        // Un agente dado de baja ya no tiene acceso a los documentos de los clientes.
+        return Agent::where('agent_status', true)
+            ->where('agent_phone', 'like', "%{$lastDigits}")
             ->get()
             ->first(fn (Agent $agent) => PhoneNumber::matches($agent->agent_phone, $phone));
-    }
-
-    /**
-     * Mensajes de agentes: búsqueda de documentos en lenguaje natural o conversación con la IA.
-     */
-    private function handleAgentMessage(Agent $agent, string $message, Chat $chat, object $payload): void
-    {
-        $intent = $this->geminiService->processMessage($message);
-
-        if (!$intent || !isset($intent['intent'])) {
-            $this->whatsAppService->sendTextMessage($agent->agent_phone, "No entendí tu mensaje. ¿Podrías reformularlo?");
-            return;
-        }
-
-        if ($intent['intent'] === 'fetch_document') {
-
-            if (empty($intent['client_name']) || empty($intent['document_name'])) {
-                $this->whatsAppService->sendTextMessage($agent->agent_phone, "Por favor, especifica el nombre del cliente y el documento que necesitas. Ejemplo: 'constancia de Cliente Prueba 1'");
-                return;
-            }
-
-            // Solo busca entre los clientes asignados a este agente.
-            $result = $this->agentDocumentService->findDocumentByClientAndType($agent, $intent['client_name'], $intent['document_name']);
-
-            $this->whatsAppService->sendTextMessage($agent->agent_phone, $result['message']);
-
-            if ($result['status'] === 'success') {
-                foreach ($result['files'] as $file) {
-                    $this->whatsAppService->sendDocument($agent->agent_phone, $file->temporaryDownloadUrl(), $file->original_file_name);
-                    // Pequeña pausa para evitar problemas con la API de WhatsApp
-                    sleep(1);
-                }
-            }
-
-        } else { // El intent es 'chat'
-            $chat->update(['action' => Chat::ACTION_IA_CONVERSATION]);
-
-            $this->chatStateService->handleIaConversationState($chat, $payload);
-        }
     }
 }

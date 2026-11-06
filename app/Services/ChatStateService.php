@@ -25,8 +25,7 @@ class ChatStateService
     public function __construct(
         private WhatsAppService $whatsAppService,
         private ClientService $clientService,
-        private ClientVerificationService $verificationService,
-        private GeminiService $geminiService
+        private ClientVerificationService $verificationService
     ) {
     }
 
@@ -305,16 +304,5 @@ class ChatStateService
         return ClientFile::where('client_rfc', $client->client_rfc)
             ->whereNotNull('category')->where('category', '!=', '')
             ->distinct()->orderBy('category')->pluck('category')->all();
-    }
-
-    /**
-     * Conversación con IA (solo disponible para agentes).
-     */
-    public function handleIaConversationState(Chat $chat, object $payload): void
-    {
-        $this->whatsAppService->sendTypingIndicator($payload->messageId);
-
-        $botResponse = $this->geminiService->chatWithIA(str_replace(["\n", "\r"], ' ', $payload->userMessage), $payload->userName, $chat->context ?? []);
-        $this->whatsAppService->sendTextMessage($payload->userPhone, $botResponse);
     }
 }

@@ -143,3 +143,10 @@ Agrega los secrets `DEPLOY_HOST`, `DEPLOY_USER` y `DEPLOY_SSH_KEY` y ejecuta **A
 | Agentes | Solo pueden pedir documentos de sus propios clientes. |
 
 > **Nota sobre las alertas:** WhatsApp solo entrega texto libre a números que escribieron al bot en las últimas 24 h. Para garantizar que las alertas lleguen siempre a los agentes, conviene migrarlas a plantillas aprobadas.
+
+## IA de agentes: Gemini y OpenRouter
+
+El bot usa Gemini y, si falla o llega a su tope, OpenRouter. Antes de desplegar, agrega al `.env` del servidor las variables de la sección «IA de agentes» de `deploy/dploy/env.production.example`; la única obligatoria para activar el respaldo es `OPENROUTER_API_KEY`.
+
+- Los topes se cuentan en la app y el consumo del día se ve en el panel de inicio.
+- `OPENROUTER_DATA_COLLECTION=deny` solo admite proveedores que no conservan datos. Si en `laravel.log` aparece que no hay proveedores disponibles para OpenRouter, valora si cambiarlo a `allow`: los mensajes de los agentes podrían quedar almacenados o usarse para entrenamiento.

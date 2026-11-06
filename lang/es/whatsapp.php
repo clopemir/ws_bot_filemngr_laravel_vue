@@ -46,6 +46,20 @@ return [
         'otp_locked' => "🚫 *Alerta de seguridad*\n\nEl número wa.me/:phone agotó los intentos de código para *:client_name*. Considera contactar al cliente.\n\nHora: :timestamp",
     ],
 
+    'agent' => [
+        'sending' => "Te envío :count archivo(s) de *:label* de *:client*.",
+        'sending_some' => "Te envío los :count más recientes de :total archivos de *:label* de *:client*. Si buscas otro, dime su nombre o año.",
+        'partial_delivery' => "⚠️ Solo pude enviar :sent de :total archivos de *:client*. Revisa el panel o inténtalo de nuevo.",
+        'choose_client' => "Encontré varios clientes. Responde con el número o el RFC:\n\n:list",
+        'which_client' => "¿De qué cliente? Escribe su nombre o RFC.",
+        'which_document' => "¿Qué documento de *:client* necesitas?\n\n:categories",
+        'client_not_found' => "No encontré ningún cliente con \":name\". Revisa el nombre o escribe su RFC.",
+        'document_not_found' => "No encontré \":term\" para *:client*. Tiene estas carpetas con archivos:\n\n:categories",
+        'no_documents' => "*:client* todavía no tiene documentos.",
+        'ai_unavailable' => "En este momento el asistente de IA no está disponible. Intenta más tarde.\n\nPuedes seguir pidiendo documentos, por ejemplo: *constancia de Juan Pérez*.",
+        'ai_unavailable_documents' => "No pude identificar tu solicitud y el asistente de IA no está disponible.\n\nEscríbela así: *constancia de Juan Pérez* o *opinión XAXX010101000*.",
+    ],
+
     'agent_already_notified' => 'Tu agente ya fue notificado y se pondrá en contacto contigo. Mientras tanto, estas son tus opciones:',
     'agent_notification_pending' => 'Hemos notificado a tu agente. Se pondrá en contacto contigo pronto.',
     'agent_notification_message' => "Hola *:agent_name*.\n\nEl cliente *:client_name* solicita tu atención.\n\nContáctalo en: wa.me/:client_phone\n\nHora: :timestamp",

@@ -33,6 +33,14 @@ return [
         // Nivel de razonamiento de los modelos 3.x (minimal|low|medium|high). Vacío = valor por defecto del modelo.
         'thinking_level' => env('GEMINI_THINKING_LEVEL', 'low'),
     ],
+    'openrouter' => [
+        'api_key' => env('OPENROUTER_API_KEY'),
+        'url' => env('OPENROUTER_API_URL', 'https://openrouter.ai/api/v1/chat/completions'),
+        // Router que elige entre los modelos gratuitos disponibles.
+        'model' => env('OPENROUTER_MODEL', 'openrouter/free'),
+        // deny: solo proveedores que no conservan los datos enviados. allow amplía los modelos disponibles.
+        'data_collection' => env('OPENROUTER_DATA_COLLECTION', 'deny'),
+    ],
 
     'postmark' => [
         'token' => env('POSTMARK_TOKEN'),

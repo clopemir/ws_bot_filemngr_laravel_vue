@@ -58,7 +58,7 @@ export function useClientForm(initialData = null) {
     }
 
     const deleteClient = (id) => {
-        //if(!window.confirm('Seguro de que quieres Eliminar este cliente?')) return;
+        if (!window.confirm('¿Seguro que quieres eliminar este cliente?')) return;
 
         router.delete(route('clients.destroy', id), {
             preserveScroll: true,
